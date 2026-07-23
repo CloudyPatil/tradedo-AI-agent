@@ -1,0 +1,49 @@
+# E:\tradedo\.gitignore
+
+# ── Python ─────────────────────────
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+
+# ── Environment ────────────────────
+.env
+.env.local
+.env.production
+
+# ── Data & Models (too big) ────────
+data/
+models/
+logs/
+*.db
+*.sqlite
+*.pkl
+
+# ── Node / Next.js ─────────────────
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── IDE ────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ─────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Misc ───────────────────────────
+*.log
+.cache/
+coverage/

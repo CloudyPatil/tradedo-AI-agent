@@ -70,15 +70,12 @@ class ModelStore:
 
 # ─── Data Fetcher ─────────────────────────────────────────────
 def fetch_swing_data(symbol: str) -> pd.DataFrame:
+    """Fetch 1yr daily + update with live price."""
     logger.info(f"Fetching swing data for {symbol}")
     
-    # Historical daily data
     df = yf.download(
-        symbol,
-        period="1y",
-        interval="1d",
-        auto_adjust=True,
-        progress=False
+        symbol, period="1y", interval="1d",
+        auto_adjust=True, progress=False
     )
 
     if df.empty:
@@ -89,19 +86,18 @@ def fetch_swing_data(symbol: str) -> pd.DataFrame:
 
     df.dropna(inplace=True)
     
-    # ── ADD LIVE PRICE (today's real-time) ────────────────
+    # ── Update last candle with LIVE price ────────────────
     try:
         ticker = yf.Ticker(symbol)
         live_price = ticker.fast_info.get("last_price")
         
         if live_price and live_price > 0:
-            # Update last candle's Close with live price
             df.loc[df.index[-1], "Close"] = float(live_price)
-            logger.info(f"  → Updated with live price: ₹{live_price}")
+            logger.info(f"  → Live price applied: ₹{live_price:.2f}")
     except Exception as e:
         logger.warning(f"Live price fetch failed: {e}")
     
-    logger.info(f"  → {len(df)} daily candles")
+    logger.info(f"  → {len(df)} candles")
     return df
 
 
@@ -623,6 +619,10 @@ def predict_full(symbol: str, mode: str = "swing") -> Dict:
             f"Confidence {ml_result['confidence_pct']}% is below threshold. "
             f"Consider waiting for clearer signal."
         )
+
+    # ── 7. ADD THIS: Generate Trade Plan ─────────────────────
+    from ml.trade_planner import generate_trade_plan
+    ml_result["trade_plan"] = generate_trade_plan(ml_result, mode=mode)
 
     logger.info(
         f"[FULL] {symbol} → {ml_result['emoji']} {ml_result['signal']} "

@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from api.chart_routes import router as chart_router
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -74,6 +75,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(chart_router, prefix="/api/v1")
 
 
 @app.get("/")

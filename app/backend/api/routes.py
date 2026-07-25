@@ -247,3 +247,28 @@ async def get_prediction_history(
         return {"symbol": symbol, "history": history}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ADD to routes.py
+
+@router.post("/telegram/test")
+async def test_telegram():
+    """Test telegram bot connection."""
+    from utils.telegram_bot import send_message
+    from datetime import datetime
+    
+    msg = (
+        "🧪 <b>Test Message from TRADEDO</b>\n\n"
+        f"🕒 {datetime.now().strftime('%H:%M:%S')}\n"
+        "✅ Bot is working perfectly!"
+    )
+    success = await send_message(msg)
+    return {"success": success}
+
+
+@router.post("/telegram/send-summary")
+async def send_summary_now():
+    """Manually trigger morning summary."""
+    from utils.scheduler import morning_summary
+    await morning_summary()
+    return {"message": "Summary sent"}

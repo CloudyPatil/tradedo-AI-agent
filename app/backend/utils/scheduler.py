@@ -117,6 +117,72 @@ def _clear_alert_history():
 
 def setup_scheduler():
     """Register all scheduled jobs."""
+
+        # ADD to utils/scheduler.py (inside setup_scheduler function)
+    
+    async def morning_agent_scan():
+        """
+        Runs at 8:45 AM IST (before market opens).
+        Scans full universe and sends top picks via Telegram.
+        """
+        from agent.scanner import scan_market
+        from database.db import save_scan_result, clear_todays_scans
+        from utils.telegram_bot import send_message
+        
+        logger.info("🌅 Morning agent scan starting...")
+        
+        try:
+            clear_todays_scans()
+            result = scan_market(tier="tier1", mode="intraday")
+            
+            # Save to DB
+            for candidate in result["candidates"]:
+                save_scan_result(candidate, is_selected=True)
+            
+            # Format Telegram message
+            stats = result["stats"]
+            candidates = result["candidates"]
+            
+            msg = "🌅 <b>Morning Market Scan Complete</b>\n\n"
+            msg += f"📊 Scanned: {stats['total_scanned']} stocks in {stats['scan_time_sec']}s\n"
+            msg += f"🎯 Regime: <b>{stats['market_regime']}</b>\n"
+            msg += f"🏆 Found: <b>{stats['candidates_found']}</b> candidates\n\n"
+        
+            if candidates:
+                msg += "<b>Top Intraday Picks:</b>\n"
+                for i, c in enumerate(candidates[:5], 1):
+                    symbol = c["symbol"].replace(".NS", "")
+                    emoji = "🟢" if c["signal"] == "BUY" else "🔴"
+                    msg += (
+                        f"{i}. {emoji} <b>{symbol}</b>  "
+                        f"{c['signal']}  "
+                        f"Score: <b>{c['composite_score']}</b>  "
+                        f"₹{c['current_price']:,.0f}\n"
+                    )
+            else:
+                msg += "🟡 No strong candidates today.\n"
+            
+            msg += f"\n📱 <a href='http://localhost:3000/agent'>View Agent Dashboard</a>"
+            
+            await send_message(msg)
+            logger.info(f"✅ Morning scan sent — {len(candidates)} candidates")
+        
+        except Exception as e:
+            logger.error(f"Morning scan failed: {e}", exc_info=True)
+
+
+    # REGISTER the new job (add inside setup_scheduler):
+    scheduler.add_job(
+        morning_agent_scan,
+        CronTrigger(
+            hour=8, minute=45,   # 8:45 AM (30 mins before market)
+            day_of_week="mon-fri",
+            timezone="Asia/Kolkata"
+        ),
+        id="morning_agent_scan",
+        name="Morning Agent Scan",
+        replace_existing=True,
+    )
     
     # Morning summary at 9:00 AM (Mon-Fri)
     scheduler.add_job(

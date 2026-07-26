@@ -272,3 +272,46 @@ async def send_summary_now():
     from utils.scheduler import morning_summary
     await morning_summary()
     return {"message": "Summary sent"}
+
+# ADD to api/routes.py
+
+@router.post("/agent/scan")
+async def trigger_scan(
+    tier: str = Query(default="tier1", description="tier1 (50), tier2 (100), full (150)"),
+    mode: str = Query(default="intraday")
+):
+    """
+    Trigger a market scan.
+    Returns top candidates sorted by composite score.
+    """
+    from agent.scanner import scan_market
+    from database.db import save_scan_result, clear_todays_scans
+    
+    try:
+        # Clear old scans for today
+        clear_todays_scans()
+        
+        # Run scan
+        result = scan_market(tier=tier, mode=mode)
+        
+        # Save candidates to DB
+        for candidate in result["candidates"]:
+            save_scan_result(candidate, is_selected=True)
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"Scan failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/agent/scan/latest")
+async def get_latest_scan():
+    """Get today's latest scan candidates from DB."""
+    from database.db import get_todays_scan_candidates
+    
+    candidates = get_todays_scan_candidates(limit=20)
+    return {
+        "count": len(candidates),
+        "candidates": candidates
+    }

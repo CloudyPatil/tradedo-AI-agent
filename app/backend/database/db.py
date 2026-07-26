@@ -210,3 +210,45 @@ if __name__ == "__main__":
     init_db()
     print("Database created successfully!")
     print(f"Location: {DB_PATH}")
+
+
+def save_scan_result(scan_data: dict, is_selected: bool = False):
+    """Save a single scan result."""
+    conn = get_connection()
+    try:
+        conn.execute("""
+            INSERT INTO daily_scan
+            (symbol, confidence, signal, composite, selected, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            scan_data.get("symbol"),
+            scan_data.get("confidence"),
+            scan_data.get("signal"),
+            scan_data.get("composite_score"),
+            is_selected,
+            scan_data.get("reason", ""),
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_todays_scan_candidates(limit: int = 10) -> list:
+    """Get today's scan candidates."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM daily_scan 
+        WHERE date(scan_time) = date('now')
+        ORDER BY composite DESC 
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def clear_todays_scans():
+    """Clear today's scan results before new scan."""
+    conn = get_connection()
+    conn.execute("DELETE FROM daily_scan WHERE date(scan_time) = date('now')")
+    conn.commit()
+    conn.close()

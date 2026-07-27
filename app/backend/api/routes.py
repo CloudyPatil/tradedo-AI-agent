@@ -422,3 +422,36 @@ async def get_all_bulk_deals():
     """Get all bulk deals today."""
     from data_pipeline.nse_data import fetch_bulk_deals
     return {"deals": fetch_bulk_deals()}
+
+# ADD to routes.py
+
+# ═══════════════════════════════════════════════════════════════
+#   Google Trends + Global Markets Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/trends/{symbol}")
+async def get_google_trends(symbol: str):
+    """Get Google Trends search interest for a stock."""
+    from data_pipeline.trends_data import fetch_google_trends
+    return fetch_google_trends(symbol)
+
+
+@router.get("/global/markets")
+async def get_global_markets():
+    """Get all global market indicators."""
+    from data_pipeline.global_markets import analyze_global_context
+    return analyze_global_context()
+
+
+@router.get("/global/impact/{symbol}")
+async def get_global_impact(symbol: str):
+    """Get sector-specific global market impact for a stock."""
+    from data_pipeline.global_markets import get_sector_impact_from_global
+    return get_sector_impact_from_global(symbol)
+
+
+@router.get("/global/raw")
+async def get_global_raw():
+    """Get raw data for all global indicators."""
+    from data_pipeline.global_markets import fetch_all_global_markets
+    return fetch_all_global_markets()

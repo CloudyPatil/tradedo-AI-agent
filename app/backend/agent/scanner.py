@@ -112,6 +112,76 @@ class StockScanner:
             "candidates": candidates,
             "all_results": self.results,
         }
+
+    # ADD to agent/scanner.py (after existing scan method)
+
+    def deep_scan(self, tier: str = "tier1") -> Dict:
+        """
+        Deep scan using MASTER SCORER for top candidates.
+        
+        Process:
+        1. Fast scan all stocks (basic ML)
+        2. Take top 20 candidates
+        3. Run FULL master scorer on those 20 only
+        4. Return final ranked list
+        
+        Way smarter than just ML predictions.
+        """
+        from agent.master_scorer import get_master_score
+        
+        start_time = time.time()
+        
+        # Step 1: Fast scan first
+        logger.info("🔍 Deep Scan Step 1: Fast scanning universe...")
+        fast_result = self.scan(tier=tier)
+        fast_candidates = fast_result["candidates"]
+        
+        if not fast_candidates:
+            return fast_result
+        
+        # Step 2: Take top 20 for deep analysis
+        top_candidates = fast_candidates[:20]
+        logger.info(f"🧠 Deep Scan Step 2: Master scoring top {len(top_candidates)}...")
+        
+        # Step 3: Master scoring in parallel (batch of 3 at a time to avoid overload)
+        deep_results = []
+        
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                executor.submit(get_master_score, c["symbol"], self.mode): c
+                for c in top_candidates
+            }
+            
+            for future in as_completed(futures):
+                try:
+                    master_result = future.result(timeout=120)
+                    if master_result.get("tradeable"):
+                        deep_results.append(master_result)
+                        logger.info(
+                            f"  ✓ {master_result['symbol']}: "
+                            f"{master_result['verdict']} ({master_result['final_score']})"
+                        )
+                except Exception as e:
+                    logger.warning(f"Deep score failed: {e}")
+        
+        # Sort by final score
+        deep_results.sort(key=lambda x: x["final_score"], reverse=True)
+        
+        elapsed = round(time.time() - start_time, 1)
+        
+        return {
+            "stats": {
+                "total_scanned":     fast_result["stats"]["total_scanned"],
+                "fast_candidates":   len(fast_candidates),
+                "deep_analyzed":     len(top_candidates),
+                "tradeable":         len(deep_results),
+                "market_regime":     self.market_regime,
+                "scan_time_sec":     elapsed,
+                "scanned_at":        datetime.now().isoformat(),
+            },
+            "tradeable_candidates":  deep_results[:10],  # Top 10 tradeable
+            "all_deep_results":      deep_results,
+        }
     
     def _filter_and_rank(self) -> List[Dict]:
         """Apply filters and rank by composite score."""

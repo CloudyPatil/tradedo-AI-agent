@@ -455,3 +455,63 @@ async def get_global_raw():
     """Get raw data for all global indicators."""
     from data_pipeline.global_markets import fetch_all_global_markets
     return fetch_all_global_markets()
+
+# ADD to routes.py
+
+# ═══════════════════════════════════════════════════════════════
+#   Master Scorer Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/master/{symbol}")
+async def get_master_score_endpoint(
+    symbol: str,
+    mode: str = Query(default="intraday")
+):
+    """
+    Get complete master score for a stock.
+    Combines all 10+ data sources into one verdict.
+    Takes ~30-60 seconds due to comprehensive analysis.
+    """
+    from agent.master_scorer import get_master_score
+    
+    try:
+        return get_master_score(symbol, mode=mode)
+    except Exception as e:
+        logger.error(f"Master score failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/master/{symbol}/lite")
+async def get_master_score_lite_endpoint(
+    symbol: str,
+    mode: str = Query(default="intraday")
+):
+    """
+    Fast version — technical + news + NSE only.
+    Takes ~10-15 seconds.
+    """
+    from agent.master_scorer import get_master_score_lite
+    
+    try:
+        return get_master_score_lite(symbol, mode=mode)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agent/deep-scan")
+async def deep_scan(
+    tier: str = Query(default="tier1")
+):
+    """
+    Deep scan using MASTER SCORER.
+    Way smarter than basic scan.
+    Takes 5-10 minutes.
+    """
+    from agent.scanner import StockScanner
+    
+    try:
+        scanner = StockScanner(mode="intraday")
+        return scanner.deep_scan(tier=tier)
+    except Exception as e:
+        logger.error(f"Deep scan failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

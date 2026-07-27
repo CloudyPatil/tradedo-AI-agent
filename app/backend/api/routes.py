@@ -352,3 +352,11 @@ async def get_stocktwits_only(symbol: str):
     """Get only StockTwits sentiment."""
     from data_pipeline.stocktwits_data import fetch_stocktwits_data
     return fetch_stocktwits_data(symbol)
+
+# ADD to routes.py
+
+@router.get("/social/{symbol}/youtube")
+async def get_youtube_only(symbol: str):
+    """Get only YouTube intelligence."""
+    from data_pipeline.youtube_data import fetch_youtube_intel
+    return fetch_youtube_intel(symbol)

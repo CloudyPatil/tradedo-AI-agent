@@ -323,3 +323,32 @@ async def llm_pool_status():
     """Check LLM pool health."""
     from utils.llm_manager import get_pool
     return get_pool().get_stats()
+
+# ADD to routes.py
+
+@router.get("/social/{symbol}")
+async def get_social_data(symbol: str):
+    """
+    Get combined social intelligence for a stock.
+    Aggregates Reddit + StockTwits sentiment.
+    """
+    from data_pipeline.social_intel import get_social_intelligence
+    
+    try:
+        return get_social_intelligence(symbol)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/social/{symbol}/reddit")
+async def get_reddit_only(symbol: str):
+    """Get only Reddit sentiment."""
+    from data_pipeline.reddit_data import fetch_reddit_sentiment
+    return fetch_reddit_sentiment(symbol)
+
+
+@router.get("/social/{symbol}/stocktwits")
+async def get_stocktwits_only(symbol: str):
+    """Get only StockTwits sentiment."""
+    from data_pipeline.stocktwits_data import fetch_stocktwits_data
+    return fetch_stocktwits_data(symbol)

@@ -315,3 +315,11 @@ async def get_latest_scan():
         "count": len(candidates),
         "candidates": candidates
     }
+
+# ADD to routes.py
+
+@router.get("/agent/llm-status")
+async def llm_pool_status():
+    """Check LLM pool health."""
+    from utils.llm_manager import get_pool
+    return get_pool().get_stats()

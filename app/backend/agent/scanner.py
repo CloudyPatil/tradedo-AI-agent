@@ -114,32 +114,21 @@ class StockScanner:
         }
     
     def _filter_and_rank(self) -> List[Dict]:
-        """
-        Apply filters and rank by composite score.
+        """Apply filters and rank by composite score."""
+        from agent.sectors import diversify_candidates, get_sector
         
-        Filters:
-        - Signal must be BUY or SELL (no HOLD)
-        - Confidence >= MIN_CONFIDENCE
-        - Signal aligns with market regime
-        """
         candidates = []
         
         for stock in self.results:
             signal     = stock["signal"]
             confidence = stock["confidence"]
-            
-            # Filter 1: Skip HOLD signals
+        
             if signal == "HOLD":
                 continue
-            
-            # Filter 2: Confidence threshold
             if confidence < MIN_CONFIDENCE:
                 continue
-            
-            # Filter 3: Regime alignment (soft filter)
+        
             regime_aligned = self._check_regime_alignment(signal)
-            
-            # Calculate composite score (simplified for scanner)
             composite = self._quick_composite_score(
                 confidence=confidence,
                 regime_aligned=regime_aligned,
@@ -147,18 +136,23 @@ class StockScanner:
                 signal=signal,
             )
             
-            # Filter 4: Composite threshold
             if composite < MIN_COMPOSITE_SCORE:
                 continue
             
             stock["composite_score"] = composite
             stock["regime_aligned"]  = regime_aligned
+            stock["sector"]          = get_sector(stock["symbol"])
             candidates.append(stock)
         
         # Sort by composite score (descending)
         candidates.sort(key=lambda x: x["composite_score"], reverse=True)
-        
-        return candidates[:MAX_CANDIDATES]
+    
+        # ── APPLY SECTOR DIVERSIFICATION ─────────────────────────
+        # Keep top 3 per sector for candidates pool
+        # (Executor later picks top 1 per sector for actual trades)
+        diversified = diversify_candidates(candidates, max_per_sector=3)
+    
+        return diversified[:MAX_CANDIDATES]
     
     def _check_regime_alignment(self, signal: str) -> bool:
         """Check if signal aligns with market regime."""

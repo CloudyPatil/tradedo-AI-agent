@@ -368,3 +368,57 @@ async def get_twitter_only(symbol: str):
     """Get only Twitter/X intelligence."""
     from data_pipeline.twitter_data import fetch_twitter_intel
     return fetch_twitter_intel(symbol)
+
+# ADD to routes.py
+
+# ═══════════════════════════════════════════════════════════════
+#   NSE Official Data Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/nse/{symbol}")
+async def get_nse_intel(symbol: str):
+    """Get complete NSE intelligence for a stock."""
+    from data_pipeline.nse_data import get_nse_intelligence
+    return get_nse_intelligence(symbol)
+
+
+@router.get("/nse/{symbol}/announcements")
+async def get_nse_announcements(symbol: str, days: int = 7):
+    """Get corporate announcements."""
+    from data_pipeline.nse_data import fetch_announcements
+    return {"announcements": fetch_announcements(symbol, days)}
+
+
+@router.get("/nse/{symbol}/options")
+async def get_nse_options(symbol: str):
+    """Get options chain analysis."""
+    from data_pipeline.nse_data import fetch_option_chain
+    return fetch_option_chain(symbol) or {"error": "No data"}
+
+
+@router.get("/nse/{symbol}/bulk-deals")
+async def get_stock_bulk_deals(symbol: str):
+    """Get bulk deals for a stock."""
+    from data_pipeline.nse_data import analyze_bulk_deals_for_stock
+    return analyze_bulk_deals_for_stock(symbol)
+
+
+@router.get("/nse/market/fii-dii")
+async def get_fii_dii():
+    """Get today's FII/DII flow."""
+    from data_pipeline.nse_data import get_fii_dii_cached
+    return get_fii_dii_cached()
+
+
+@router.get("/nse/market/fno-ban")
+async def get_fno_ban():
+    """Get today's F&O ban list."""
+    from data_pipeline.nse_data import get_fno_ban_list_cached
+    return {"banned_stocks": get_fno_ban_list_cached()}
+
+
+@router.get("/nse/market/bulk-deals")
+async def get_all_bulk_deals():
+    """Get all bulk deals today."""
+    from data_pipeline.nse_data import fetch_bulk_deals
+    return {"deals": fetch_bulk_deals()}

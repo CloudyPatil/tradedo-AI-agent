@@ -360,3 +360,11 @@ async def get_youtube_only(symbol: str):
     """Get only YouTube intelligence."""
     from data_pipeline.youtube_data import fetch_youtube_intel
     return fetch_youtube_intel(symbol)
+
+# ADD to routes.py
+
+@router.get("/social/{symbol}/twitter")
+async def get_twitter_only(symbol: str):
+    """Get only Twitter/X intelligence."""
+    from data_pipeline.twitter_data import fetch_twitter_intel
+    return fetch_twitter_intel(symbol)

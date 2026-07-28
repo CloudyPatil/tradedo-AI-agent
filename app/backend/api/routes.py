@@ -515,3 +515,48 @@ async def deep_scan(
     except Exception as e:
         logger.error(f"Deep scan failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ADD to routes.py
+
+@router.get("/gates/{symbol}")
+async def check_safety_gates_endpoint(
+    symbol: str,
+    mode: str = Query(default="intraday")
+):
+    """
+    Check ALL safety gates for a stock.
+    Shows why a trade would be blocked (if any).
+    """
+    from agent.safety_gates import check_all_gates
+    from agent.master_scorer import get_master_score
+    
+    try:
+        # Get master result for news blocker gate
+        master_result = get_master_score(symbol, mode=mode)
+        
+        # Run gates
+        return check_all_gates(
+            symbol=symbol,
+            mode=mode,
+            master_result=master_result,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/master-full/{symbol}")
+async def get_full_master_with_gates(
+    symbol: str,
+    mode: str = Query(default="intraday")
+):
+    """
+    Get master score + safety gates combined.
+    THE ULTIMATE ANALYSIS ENDPOINT.
+    """
+    from agent.master_scorer import get_master_score_with_gates
+    
+    try:
+        return get_master_score_with_gates(symbol, mode=mode)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

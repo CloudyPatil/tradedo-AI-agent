@@ -691,6 +691,83 @@ def get_master_score_lite(symbol: str, mode: str = "intraday") -> Dict:
     
     return scorer.calculate_score()
 
+# ADD to end of agent/master_scorer.py
+
+def get_master_score_with_gates(
+    symbol: str,
+    mode: str = "intraday",
+    open_positions: List[Dict] = None,
+    recent_trades: List[Dict] = None,
+    current_capital: float = 100000,
+    starting_capital: float = 100000,
+) -> Dict:
+    """
+    Get master score PLUS safety gate check.
+    Returns unified verdict considering both score AND safety.
+    """
+    from agent.safety_gates import check_all_gates
+    
+    # Step 1: Get master score
+    master_result = get_master_score(symbol, mode=mode)
+    
+    # Step 2: Run safety gates
+    gate_result = check_all_gates(
+        symbol=symbol,
+        mode=mode,
+        open_positions=open_positions,
+        recent_trades=recent_trades,
+        current_capital=current_capital,
+        starting_capital=starting_capital,
+        master_result=master_result,
+    )
+    
+    # Combine results
+    master_result["safety_gates"] = gate_result
+    
+    # Final decision: BOTH score AND gates must approve
+    can_execute = (
+        master_result.get("tradeable", False) and
+        gate_result.get("safe_to_trade", False)
+    )
+    
+    master_result["can_execute"]   = can_execute
+    master_result["final_verdict"] = _get_combined_verdict(master_result, gate_result)
+    
+    return master_result
+
+
+def _get_combined_verdict(master: Dict, gates: Dict) -> Dict:
+    """Combine master score verdict with safety gates."""
+    score_verdict = master.get("verdict", "UNKNOWN")
+    safe          = gates.get("safe_to_trade", False)
+    
+    if not safe:
+        return {
+            "level":  "BLOCKED",
+            "action": "SAFETY_GATES_FAILED",
+            "reason": f"{gates['gates_failed']} gates failed: {gates.get('failed_gates')}",
+        }
+    
+    if score_verdict == "STRONG":
+        return {
+            "level":  "EXECUTE_NOW",
+            "action": "AUTO_EXECUTE",
+            "reason": "Strong score + all gates passed",
+        }
+    elif score_verdict == "GOOD":
+        return {
+            "level":  "EXECUTE_WITH_REVIEW",
+            "action": "SUGGEST_TRADE",
+            "reason": "Good score + all gates passed",
+        }
+    else:
+        return {
+            "level":  "SKIP",
+            "action": "NO_TRADE",
+            "reason": f"Score too low: {score_verdict}",
+        }
+
+
 
 # ─── Quick Test ───────────────────────────────────────────────
 if __name__ == "__main__":

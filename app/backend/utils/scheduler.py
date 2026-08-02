@@ -118,8 +118,12 @@ def _clear_alert_history():
 def setup_scheduler():
     """Register all scheduled jobs."""
 
-        # ADD to utils/scheduler.py (inside setup_scheduler function)
-    
+    async def refresh_cross_asset():
+        """Refresh cross-asset data (Nifty, VIX, etc.) once per day."""
+        from data_pipeline.cross_asset import refresh_cross_asset_data
+        logger.info("🔄 Daily cross-asset refresh...")
+        refresh_cross_asset_data()
+
     async def morning_agent_scan():
         """
         Runs at 8:45 AM IST (before market opens).
@@ -171,7 +175,20 @@ def setup_scheduler():
             logger.error(f"Morning scan failed: {e}", exc_info=True)
 
 
-    # REGISTER the new job (add inside setup_scheduler):
+    # 1. Cross-Asset Refresh at 8:30 AM (Mon-Fri)
+    scheduler.add_job(
+        refresh_cross_asset,
+        CronTrigger(
+            hour=8, minute=30,     # Before market opens
+            day_of_week="mon-fri",
+            timezone="Asia/Kolkata"
+        ),
+        id="cross_asset_refresh",
+        name="Daily Cross-Asset Data Refresh",
+        replace_existing=True,
+    )
+
+    # 2. Morning Agent Scan at 8:45 AM (Mon-Fri)
     scheduler.add_job(
         morning_agent_scan,
         CronTrigger(
@@ -184,7 +201,7 @@ def setup_scheduler():
         replace_existing=True,
     )
     
-    # Morning summary at 9:00 AM (Mon-Fri)
+    # 3. Morning summary at 9:00 AM (Mon-Fri)
     scheduler.add_job(
         morning_summary,
         CronTrigger(
@@ -197,7 +214,7 @@ def setup_scheduler():
         replace_existing=True,
     )
 
-    # Auto refresh every 15 mins during market (Mon-Fri)
+    # 4. Auto refresh every 15 mins during market (Mon-Fri)
     scheduler.add_job(
         auto_refresh_watchlist,
         CronTrigger(
@@ -211,7 +228,7 @@ def setup_scheduler():
         replace_existing=True,
     )
 
-    # EOD at 3:45 PM
+    # 5. EOD at 3:45 PM
     scheduler.add_job(
         eod_summary,
         CronTrigger(
@@ -224,5 +241,5 @@ def setup_scheduler():
         replace_existing=True,
     )
 
-    logger.info("✅ Scheduler configured with 3 jobs")
+    logger.info("✅ Scheduler configured with 5 jobs")
     return scheduler

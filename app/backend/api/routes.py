@@ -685,3 +685,71 @@ async def overall_performance():
     """Get all-time performance."""
     from database.db import get_overall_performance
     return get_overall_performance()
+
+# ADD to routes.py
+
+# ═══════════════════════════════════════════════════════════════
+#   Trade Journal / Analytics Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/journal/insights")
+async def get_journal_insights():
+    """Get comprehensive learning insights from trade history."""
+    from agent.trade_journal import get_learning_insights
+    return get_learning_insights()
+
+
+@router.get("/journal/patterns/best")
+async def get_best_patterns():
+    """Find winning patterns in trade history."""
+    from agent.trade_journal import find_best_patterns
+    return {"patterns": find_best_patterns()}
+
+
+@router.get("/journal/patterns/worst")
+async def get_worst_patterns():
+    """Find losing patterns to avoid."""
+    from agent.trade_journal import find_worst_patterns
+    return {"patterns": find_worst_patterns()}
+
+
+@router.get("/journal/analytics/confidence")
+async def analytics_by_confidence():
+    """Win rate breakdown by confidence level."""
+    from agent.trade_journal import analyze_win_rate_by_confidence
+    return analyze_win_rate_by_confidence()
+
+
+@router.get("/journal/analytics/sector")
+async def analytics_by_sector():
+    """Win rate breakdown by sector."""
+    from agent.trade_journal import analyze_win_rate_by_sector
+    return analyze_win_rate_by_sector()
+
+
+@router.get("/journal/analytics/time")
+async def analytics_by_time():
+    """Win rate breakdown by hour."""
+    from agent.trade_journal import analyze_win_rate_by_time
+    return analyze_win_rate_by_time()
+
+
+@router.get("/journal/analytics/score")
+async def analytics_by_score():
+    """Win rate breakdown by composite score."""
+    from agent.trade_journal import analyze_win_rate_by_composite_score
+    return analyze_win_rate_by_composite_score()
+
+
+@router.get("/journal/analytics/exits")
+async def analytics_by_exit():
+    """Analyze what causes trade exits."""
+    from agent.trade_journal import analyze_exit_reasons
+    return analyze_exit_reasons()
+
+
+@router.get("/journal/trades/full")
+async def get_journal_full():
+    """Get all closed trades with rich journal data."""
+    from agent.trade_journal import get_all_closed_trades_with_journal
+    return {"trades": get_all_closed_trades_with_journal()}

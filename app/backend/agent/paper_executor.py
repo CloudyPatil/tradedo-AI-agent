@@ -24,6 +24,7 @@ from database.db import (
 from agent.risk_manager import calculate_trade_plan, RiskManager
 from agent.safety_gates import check_all_gates
 from agent.sectors import get_sector
+from agent.trade_journal import TradeJournal
 
 logger = logging.getLogger("tradedo.executor")
 
@@ -151,6 +152,19 @@ class PaperExecutor:
         
         # 8. Create trade in database
         trade_id = create_paper_trade(trade_data)
+
+        # 8.5 ── SAVE JOURNAL SNAPSHOT (NEW!) ────────────────────
+        snapshot = TradeJournal.build_entry_snapshot(
+            symbol=symbol,
+            signal=signal,
+            current_price=current_price,
+            confidence_pct=confidence_pct,
+            composite_score=composite_score,
+            master_result=master_result,
+            trade_plan=trade_plan,
+        )
+        TradeJournal.save_full_snapshot(trade_id, snapshot)
+        # ── End journal snapshot ─────────────────────────────────
         
         # 9. Update agent state
         update_agent_state(

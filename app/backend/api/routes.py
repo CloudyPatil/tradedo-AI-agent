@@ -560,3 +560,128 @@ async def get_full_master_with_gates(
         return get_master_score_with_gates(symbol, mode=mode)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ADD to routes.py
+
+# ═══════════════════════════════════════════════════════════════
+#   Paper Executor Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.post("/agent/start")
+async def start_agent_endpoint():
+    """Enable the agent to execute trades."""
+    from agent.paper_executor import start_agent
+    return start_agent()
+
+
+@router.post("/agent/stop")
+async def stop_agent_endpoint():
+    """Disable the agent."""
+    from agent.paper_executor import stop_agent
+    return stop_agent()
+
+
+@router.get("/agent/status")
+async def agent_status_endpoint():
+    """Get complete agent status."""
+    from agent.paper_executor import get_agent_status
+    return get_agent_status()
+
+
+@router.post("/agent/reset-capital")
+async def reset_capital_endpoint(new_capital: float = Query(default=100000)):
+    """Reset virtual capital (for testing)."""
+    from agent.paper_executor import reset_agent_capital
+    return reset_agent_capital(new_capital)
+
+
+@router.post("/agent/execute-trade/{symbol}")
+async def execute_trade_endpoint(
+    symbol: str,
+    mode: str = Query(default="intraday")
+):
+    """
+    Manually trigger a trade for a specific symbol.
+    Full pipeline: master score → gates → risk → execute.
+    """
+    from agent.master_scorer import get_master_score_with_gates
+    from agent.paper_executor import PaperExecutor
+    
+    try:
+        # Get master analysis
+        master = get_master_score_with_gates(symbol, mode=mode)
+        
+        if not master.get("can_execute"):
+            return {
+                "success": False,
+                "reason": "Master analysis says no",
+                "master": master,
+            }
+        
+        # Execute
+        executor = PaperExecutor(mode=mode)
+        
+        technical = master.get("technical", {})
+        indicators = master.get("technical", {})
+        
+        result = executor.execute_trade(
+            symbol=symbol,
+            signal=technical.get("signal"),
+            current_price=technical.get("current_price"),
+            atr=indicators.get("rsi"),  # We need ATR — get from raw data
+            confidence_pct=technical.get("confidence"),
+            composite_score=master.get("final_score"),
+            ai_reasoning=master.get("ai_reasoning", ""),
+            master_result=master,
+        )
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"Trade execution failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agent/close-trade/{trade_id}")
+async def close_trade_endpoint(
+    trade_id: int,
+    current_price: float = Query(...),
+    reason: str = Query(default="MANUAL"),
+):
+    """Manually close a paper trade."""
+    from agent.paper_executor import PaperExecutor
+    executor = PaperExecutor()
+    return executor.close_trade_manually(trade_id, current_price, reason)
+
+
+@router.get("/agent/trades")
+async def get_trades(
+    status: str = Query(default="all", regex="^(all|open|closed)$"),
+    limit: int = Query(default=20, le=100)
+):
+    """Get paper trades."""
+    from database.db import get_open_trades, get_recent_trades
+    
+    if status == "open":
+        return {"trades": get_open_trades()}
+    elif status == "closed":
+        all_trades = get_recent_trades(limit=100)
+        closed = [t for t in all_trades if t["status"] != "OPEN"][:limit]
+        return {"trades": closed}
+    else:
+        return {"trades": get_recent_trades(limit=limit)}
+
+
+@router.get("/agent/performance/today")
+async def todays_performance():
+    """Get today's performance."""
+    from database.db import get_todays_performance
+    return get_todays_performance()
+
+
+@router.get("/agent/performance/overall")
+async def overall_performance():
+    """Get all-time performance."""
+    from database.db import get_overall_performance
+    return get_overall_performance()

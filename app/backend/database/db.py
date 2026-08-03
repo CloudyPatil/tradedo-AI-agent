@@ -20,14 +20,11 @@ def get_connection():
 
 
 def init_db():
-    """
-    Create all tables if they don't exist.
-    Safe to run multiple times.
-    """
+    """Create all tables — updated for Phase 5.3."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    # ── Predictions Log ───────────────────────────────────────
+    # ── Predictions Log (existing) ────────────────────────────
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS predictions (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +43,7 @@ def init_db():
         )
     """)
 
-    # ── Watchlist ─────────────────────────────────────────────
+    # ── Watchlist (existing) ──────────────────────────────────
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS watchlist (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,43 +53,93 @@ def init_db():
         )
     """)
 
-    # ── Paper Trades ──────────────────────────────────────────
+    # ── Paper Trades (ENHANCED) ───────────────────────────────
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS paper_trades (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol       TEXT NOT NULL,
-            direction    TEXT NOT NULL,
-            entry_price  REAL NOT NULL,
-            exit_price   REAL,
-            quantity     INTEGER NOT NULL,
-            stop_loss    REAL NOT NULL,
-            target       REAL NOT NULL,
-            confidence   REAL,
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol          TEXT NOT NULL,
+            direction       TEXT NOT NULL,          -- LONG/SHORT
+            signal          TEXT NOT NULL,          -- BUY/SELL
+            mode            TEXT NOT NULL,          -- intraday/swing
+            sector          TEXT,
+            
+            -- Prices
+            entry_price     REAL NOT NULL,
+            current_price   REAL,
+            exit_price      REAL,
+            stop_loss       REAL NOT NULL,
+            target_1        REAL NOT NULL,
+            target_2        REAL NOT NULL,
+            
+            -- Position
+            quantity        INTEGER NOT NULL,
+            investment      REAL NOT NULL,
+            
+            -- Risk metrics
+            risk_amount     REAL,
+            risk_pct        REAL,
+            atr             REAL,
+            
+            -- Confidence & scoring
+            ml_confidence   REAL,
             composite_score REAL,
-            status       TEXT DEFAULT 'OPEN',
-            pnl          REAL DEFAULT 0,
-            entry_time   DATETIME DEFAULT CURRENT_TIMESTAMP,
-            exit_time    DATETIME,
-            exit_reason  TEXT,
-            ai_reasoning TEXT
+            
+            -- Status tracking
+            status          TEXT DEFAULT 'OPEN',    -- OPEN/T1_HIT/T2_HIT/SL_HIT/EOD/MANUAL
+            partial_exit    BOOLEAN DEFAULT 0,      -- If 50% booked at T1
+            partial_qty     INTEGER DEFAULT 0,      -- Quantity booked at T1
+            
+            -- P&L
+            pnl             REAL DEFAULT 0,
+            pnl_pct         REAL DEFAULT 0,
+            partial_pnl     REAL DEFAULT 0,
+            
+            -- Trailing stop tracking
+            trailing_sl     REAL,
+            highest_price   REAL,
+            lowest_price    REAL,
+            
+            -- Times
+            entry_time      DATETIME DEFAULT CURRENT_TIMESTAMP,
+            exit_time       DATETIME,
+            time_exit_by    DATETIME,               -- Force exit time
+            
+            -- Exit info
+            exit_reason     TEXT,
+            hold_duration_mins INTEGER,
+            
+            -- AI/Reasoning
+            ai_reasoning    TEXT,
+            
+            -- Metadata (JSON blob for RL features)
+            metadata        TEXT
         )
     """)
 
-    # ── Agent Performance ─────────────────────────────────────
+    # ── Agent Performance (ENHANCED) ──────────────────────────
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS agent_performance (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             date            DATE UNIQUE,
+            starting_capital REAL,
+            ending_capital  REAL,
             total_trades    INTEGER DEFAULT 0,
             winning_trades  INTEGER DEFAULT 0,
             losing_trades   INTEGER DEFAULT 0,
+            eod_trades      INTEGER DEFAULT 0,
             gross_pnl       REAL DEFAULT 0,
+            gross_profit    REAL DEFAULT 0,
+            gross_loss      REAL DEFAULT 0,
             win_rate        REAL DEFAULT 0,
-            virtual_capital REAL DEFAULT 100000
+            avg_win         REAL DEFAULT 0,
+            avg_loss        REAL DEFAULT 0,
+            largest_win     REAL DEFAULT 0,
+            largest_loss    REAL DEFAULT 0,
+            avg_hold_mins   INTEGER DEFAULT 0
         )
     """)
 
-    # ── Daily Scan Results ────────────────────────────────────
+    # ── Daily Scan Results (existing) ─────────────────────────
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS daily_scan (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,7 +153,31 @@ def init_db():
         )
     """)
 
-    # ── Insert default watchlist ───────────────────────────────
+    # ── Agent Capital State (NEW) ─────────────────────────────
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS agent_state (
+            id                  INTEGER PRIMARY KEY,
+            capital             REAL DEFAULT 100000,
+            starting_capital    REAL DEFAULT 100000,
+            current_exposure    REAL DEFAULT 0,
+            open_positions      INTEGER DEFAULT 0,
+            trades_today        INTEGER DEFAULT 0,
+            wins_today          INTEGER DEFAULT 0,
+            losses_today        INTEGER DEFAULT 0,
+            pnl_today           REAL DEFAULT 0,
+            is_active           BOOLEAN DEFAULT 0,
+            last_reset          DATE,
+            updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Initialize agent state (single row)
+    cursor.execute("""
+        INSERT OR IGNORE INTO agent_state (id, capital, starting_capital, last_reset)
+        VALUES (1, 100000, 100000, date('now'))
+    """)
+
+    # Insert default watchlist
     default_stocks = [
         "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS",
         "TATAMOTORS.NS", "WIPRO.NS", "ICICIBANK.NS",
@@ -114,14 +185,367 @@ def init_db():
     ]
 
     for symbol in default_stocks:
-        cursor.execute("""
-            INSERT OR IGNORE INTO watchlist (symbol) VALUES (?)
-        """, (symbol,))
+        cursor.execute(
+            "INSERT OR IGNORE INTO watchlist (symbol) VALUES (?)",
+            (symbol,)
+        )
 
     conn.commit()
     conn.close()
     logger.info(f"✅ Database initialized at {DB_PATH}")
 
+
+# ═══════════════════════════════════════════════════════════════
+#   AGENT STATE FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
+
+def get_agent_state() -> dict:
+    """Get current agent state."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM agent_state WHERE id=1").fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+def update_agent_state(**kwargs):
+    """Update agent state fields."""
+    if not kwargs:
+        return
+        
+    conn = get_connection()
+    updates = ", ".join(f"{k}=?" for k in kwargs.keys())
+    values = list(kwargs.values())
+    
+    conn.execute(
+        f"UPDATE agent_state SET {updates}, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        values
+    )
+    conn.commit()
+    conn.close()
+
+def reset_daily_agent_state():
+    """Reset daily counters (call at start of new day)."""
+    conn = get_connection()
+    conn.execute("""
+        UPDATE agent_state 
+        SET trades_today=0, wins_today=0, losses_today=0, pnl_today=0,
+            last_reset=date('now'), updated_at=CURRENT_TIMESTAMP
+        WHERE id=1
+    """)
+    conn.commit()
+    conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+#   PAPER TRADE FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
+
+def create_paper_trade(trade_data: dict) -> int:
+    """Create a new paper trade. Returns trade ID."""
+    conn = get_connection()
+    
+    cursor = conn.execute("""
+        INSERT INTO paper_trades (
+            symbol, direction, signal, mode, sector,
+            entry_price, current_price, stop_loss, target_1, target_2,
+            quantity, investment,
+            risk_amount, risk_pct, atr,
+            ml_confidence, composite_score,
+            time_exit_by, ai_reasoning, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        trade_data.get("symbol"),
+        trade_data.get("direction"),
+        trade_data.get("signal"),
+        trade_data.get("mode"),
+        trade_data.get("sector"),
+        trade_data.get("entry_price"),
+        trade_data.get("entry_price"),  # current = entry initially
+        trade_data.get("stop_loss"),
+        trade_data.get("target_1"),
+        trade_data.get("target_2"),
+        trade_data.get("quantity"),
+        trade_data.get("investment"),
+        trade_data.get("risk_amount"),
+        trade_data.get("risk_pct"),
+        trade_data.get("atr"),
+        trade_data.get("ml_confidence"),
+        trade_data.get("composite_score"),
+        trade_data.get("time_exit_by"),
+        trade_data.get("ai_reasoning"),
+        trade_data.get("metadata"),
+    ))
+    
+    trade_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    logger.info(f"📝 Paper trade created: ID {trade_id}")
+    return trade_id
+
+def get_open_trades() -> list:
+    """Get all open paper trades."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM paper_trades 
+        WHERE status = 'OPEN' 
+        ORDER BY entry_time DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_todays_trades() -> list:
+    """Get all trades opened today."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM paper_trades 
+        WHERE date(entry_time) = date('now')
+        ORDER BY entry_time DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_recent_trades(limit: int = 20) -> list:
+    """Get recent trades."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM paper_trades 
+        ORDER BY entry_time DESC 
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_trade_by_id(trade_id: int) -> dict:
+    """Get a specific trade."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM paper_trades WHERE id = ?",
+        (trade_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def update_trade(trade_id: int, **kwargs):
+    """Update trade fields."""
+    if not kwargs:
+        return
+        
+    conn = get_connection()
+    updates = ", ".join(f"{k}=?" for k in kwargs.keys())
+    values = list(kwargs.values()) + [trade_id]
+    
+    conn.execute(
+        f"UPDATE paper_trades SET {updates} WHERE id=?",
+        values
+    )
+    conn.commit()
+    conn.close()
+
+def close_trade(
+    trade_id: int,
+    exit_price: float,
+    exit_reason: str,
+    is_partial: bool = False,
+    partial_qty: int = 0,
+):
+    """Close a paper trade (full or partial)."""
+    trade = get_trade_by_id(trade_id)
+    if not trade:
+        logger.error(f"Trade {trade_id} not found")
+        return
+        
+    is_long = trade["direction"] == "LONG"
+    entry_price = trade["entry_price"]
+    
+    if is_partial:
+        # Partial exit at T1 (usually 50%)
+        qty_exiting = partial_qty
+        remaining_qty = trade["quantity"] - qty_exiting
+        
+        # Calculate partial P&L
+        if is_long:
+            partial_pnl = round((exit_price - entry_price) * qty_exiting, 2)
+        else:
+            partial_pnl = round((entry_price - exit_price) * qty_exiting, 2)
+            
+        update_trade(
+            trade_id,
+            partial_exit=1,
+            partial_qty=qty_exiting,
+            partial_pnl=partial_pnl,
+            quantity=remaining_qty,
+            trailing_sl=entry_price,  # Move SL to breakeven
+        )
+        
+        logger.info(
+            f"💰 Partial exit: Trade {trade_id} | "
+            f"{qty_exiting} shares @ ₹{exit_price} | P&L: ₹{partial_pnl}"
+        )
+    else:
+        # Full exit
+        remaining_qty = trade["quantity"]
+        
+        if is_long:
+            pnl = round((exit_price - entry_price) * remaining_qty, 2)
+        else:
+            pnl = round((entry_price - exit_price) * remaining_qty, 2)
+            
+        # Add partial P&L if any
+        total_pnl = pnl + (trade.get("partial_pnl", 0) or 0)
+        
+        # Total investment (including partial)
+        total_invested = (
+            trade["investment"]  # Original investment
+        )
+        pnl_pct = round((total_pnl / total_invested) * 100, 2) if total_invested else 0
+        
+        # Calculate hold duration
+        from datetime import datetime
+        entry_time = datetime.fromisoformat(trade["entry_time"].replace("Z", "+00:00"))
+        if entry_time.tzinfo:
+            entry_time = entry_time.replace(tzinfo=None)
+            
+        exit_time = datetime.now()
+        hold_mins = int((exit_time - entry_time).total_seconds() / 60)
+        
+        # Determine status
+        if exit_reason == "TARGET_1_HIT":
+            status = "T1_HIT"
+        elif exit_reason == "TARGET_2_HIT":
+            status = "T2_HIT"
+        elif exit_reason == "STOP_LOSS":
+            status = "SL_HIT"
+        elif exit_reason == "EOD":
+            status = "EOD"
+        else:
+            status = "MANUAL"
+            
+        update_trade(
+            trade_id,
+            exit_price=exit_price,
+            exit_time=exit_time.isoformat(),
+            exit_reason=exit_reason,
+            status=status,
+            pnl=total_pnl,
+            pnl_pct=pnl_pct,
+            hold_duration_mins=hold_mins,
+        )
+        
+        emoji = "✅" if total_pnl > 0 else "❌"
+        logger.info(
+            f"{emoji} Trade closed: ID {trade_id} | "
+            f"{trade['symbol']} | P&L: ₹{total_pnl} ({pnl_pct}%) | "
+            f"Reason: {exit_reason}"
+        )
+
+def update_trade_current_price(trade_id: int, current_price: float):
+    """Update the current market price for a trade."""
+    trade = get_trade_by_id(trade_id)
+    if not trade:
+        return
+        
+    is_long = trade["direction"] == "LONG"
+    entry_price = trade["entry_price"]
+    qty = trade["quantity"]
+    
+    # Calculate running P&L
+    if is_long:
+        running_pnl = round((current_price - entry_price) * qty, 2)
+    else:
+        running_pnl = round((entry_price - current_price) * qty, 2)
+        
+    # Track highest/lowest
+    updates = {
+        "current_price": current_price,
+        "pnl": running_pnl,
+    }
+    
+    highest = trade.get("highest_price") or entry_price
+    lowest = trade.get("lowest_price") or entry_price
+    
+    if current_price > highest:
+        updates["highest_price"] = current_price
+    if current_price < lowest:
+        updates["lowest_price"] = current_price
+        
+    update_trade(trade_id, **updates)
+
+
+# ═══════════════════════════════════════════════════════════════
+#   PERFORMANCE FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
+
+def get_todays_performance() -> dict:
+    """Calculate today's performance stats."""
+    trades = get_todays_trades()
+    closed = [t for t in trades if t["status"] != "OPEN"]
+    open_trades = [t for t in trades if t["status"] == "OPEN"]
+    
+    winning = [t for t in closed if (t.get("pnl") or 0) > 0]
+    losing = [t for t in closed if (t.get("pnl") or 0) < 0]
+    
+    total_pnl = sum(t.get("pnl", 0) for t in closed)
+    total_profit = sum(t["pnl"] for t in winning) if winning else 0
+    total_loss = sum(t["pnl"] for t in losing) if losing else 0
+    
+    win_rate = round((len(winning) / len(closed)) * 100, 2) if closed else 0
+    avg_win = round(total_profit / len(winning), 2) if winning else 0
+    avg_loss = round(total_loss / len(losing), 2) if losing else 0
+    
+    return {
+        "date":           str(datetime.now().date()),
+        "total_trades":   len(trades),
+        "closed_trades":  len(closed),
+        "open_trades":    len(open_trades),
+        "winning_trades": len(winning),
+        "losing_trades":  len(losing),
+        "win_rate":       win_rate,
+        "total_pnl":      round(total_pnl, 2),
+        "avg_win":        avg_win,
+        "avg_loss":       avg_loss,
+        "largest_win":    round(max((t["pnl"] for t in winning), default=0), 2),
+        "largest_loss":   round(min((t["pnl"] for t in losing), default=0), 2),
+    }
+
+def get_overall_performance() -> dict:
+    """Get all-time performance stats."""
+    conn = get_connection()
+    
+    total_rows = conn.execute("""
+        SELECT COUNT(*) as total,
+               SUM(pnl) as total_pnl,
+               SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losses,
+               AVG(hold_duration_mins) as avg_hold
+        FROM paper_trades WHERE status != 'OPEN'
+    """).fetchone()
+    
+    conn.close()
+    
+    if not total_rows or total_rows["total"] == 0:
+        return {
+            "total_trades": 0,
+            "total_pnl":    0,
+            "win_rate":     0,
+        }
+        
+    total = total_rows["total"]
+    wins  = total_rows["wins"] or 0
+    losses = total_rows["losses"] or 0
+    
+    return {
+        "total_trades":   total,
+        "total_pnl":      round(total_rows["total_pnl"] or 0, 2),
+        "winning_trades": wins,
+        "losing_trades":  losses,
+        "win_rate":       round((wins / total) * 100, 2) if total else 0,
+        "avg_hold_mins":  round(total_rows["avg_hold"] or 0),
+    }
+
+
+# ─── Keep existing functions ──────────────────────────────────
+# save_prediction, get_watchlist, add_to_watchlist, remove_from_watchlist,
+# get_recent_predictions, save_scan_result, get_todays_scan_candidates, clear_todays_scans
 
 def save_prediction(prediction: dict):
     """Save a prediction result to database."""
@@ -205,13 +629,6 @@ def get_recent_predictions(symbol: str = None, limit: int = 20) -> list:
     return [dict(row) for row in rows]
 
 
-# ─── Init on import ───────────────────────────────────────────
-if __name__ == "__main__":
-    init_db()
-    print("Database created successfully!")
-    print(f"Location: {DB_PATH}")
-
-
 def save_scan_result(scan_data: dict, is_selected: bool = False):
     """Save a single scan result."""
     conn = get_connection()
@@ -252,3 +669,10 @@ def clear_todays_scans():
     conn.execute("DELETE FROM daily_scan WHERE date(scan_time) = date('now')")
     conn.commit()
     conn.close()
+
+
+# ─── Init on import ───────────────────────────────────────────
+if __name__ == "__main__":
+    init_db()
+    print("Database created successfully!")
+    print(f"Location: {DB_PATH}")

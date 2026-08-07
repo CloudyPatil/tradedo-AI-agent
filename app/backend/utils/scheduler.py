@@ -111,6 +111,19 @@ async def live_monitor_job():
         logger.error(f"Live monitor failed: {e}", exc_info=True)
 
 
+async def news_exit_check():
+    """Check news for emergency exits every 5 mins."""
+    from agent.news_exit import news_exit_job
+    try:
+        result = await news_exit_job()
+        if result.get("exits_executed", 0) > 0:
+            logger.warning(
+                f"🚨 News-based exits: {result['exits_executed']} trades closed"
+            )
+    except Exception as e:
+        logger.error(f"News exit check failed: {e}", exc_info=True)
+
+
 # ─── Alert Deduplication (in-memory) ──────────────────────────
 _alerted_today: set = set()
 
@@ -266,7 +279,20 @@ def setup_scheduler():
         replace_existing=True,
     )
 
+    scheduler.add_job(
+    news_exit_check,
+    CronTrigger(
+        hour="9-15",
+        minute="*/5",           # Every 5 minutes
+        day_of_week="mon-fri",
+        timezone="Asia/Kolkata"
+    ),
+    id="news_exit_check",
+    name="News-Based Exit Trigger",
+    replace_existing=True,
+    )
 
-    logger.info("✅ Scheduler configured with 5 jobs")
+
+    logger.info("✅ Scheduler configured with 7 jobs")
     return scheduler
 

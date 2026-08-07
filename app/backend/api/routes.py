@@ -818,3 +818,61 @@ async def test_trailing_for_trade(trade_id: int):
         "current_sl":    trade.get("trailing_sl") or trade["stop_loss"],
         "action":   result or "No SL change needed",
     }
+
+# ADD to routes.py
+
+@router.post("/agent/news-exit/check")
+async def manual_news_exit_check():
+    """Manually trigger news-based exit check for all open trades."""
+    from agent.news_exit import check_news_for_exits
+    return check_news_for_exits()
+
+
+@router.get("/agent/news-exit/stats")
+async def news_exit_stats():
+    """Get news exit analyzer statistics."""
+    from agent.news_exit import get_news_analyzer
+    analyzer = get_news_analyzer()
+    return {
+        "stats": analyzer.stats,
+        "config": {
+            "critical_negative_threshold": -0.6,
+            "moderate_negative_threshold": -0.4,
+            "check_frequency":             "Every 5 minutes",
+            "critical_keywords_count":     len([
+                # imported from module
+            ]),
+        }
+    }
+
+
+@router.post("/agent/news-exit/test/{trade_id}")
+async def test_news_exit_for_trade(trade_id: int):
+    """Test news exit analysis for a specific trade (no actual exit)."""
+    from agent.news_exit import get_news_analyzer
+    from database.db import get_trade_by_id
+    
+    trade = get_trade_by_id(trade_id)
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    
+    if trade["status"] != "OPEN":
+        return {"message": f"Trade is not open (status: {trade['status']})"}
+    
+    analyzer = get_news_analyzer()
+    result = analyzer._check_single_trade(trade)
+    
+    if result:
+        return {
+            "would_exit": True,
+            "trade_id":   trade_id,
+            "reason":     result.get("reason"),
+            "urgency":    result.get("urgency"),
+            "details":    result,
+        }
+    else:
+        return {
+            "would_exit": False,
+            "trade_id":   trade_id,
+            "message":    "No news-based exit needed",
+        }

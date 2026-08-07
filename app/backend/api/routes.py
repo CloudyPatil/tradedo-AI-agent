@@ -916,3 +916,58 @@ async def sync_websocket_subscriptions():
     """Sync WebSocket subscriptions to open trades."""
     from agent.websocket_stream import sync_subscriptions
     return sync_subscriptions()
+
+# ADD to routes.py
+
+# ═══════════════════════════════════════════════════════════════
+#   Agent Brain Manual Trigger Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/agent/brain/status")
+async def brain_status():
+    """Get agent brain status."""
+    from agent.brain import get_brain
+    return get_brain().get_status()
+
+
+@router.post("/agent/brain/premarket")
+async def trigger_premarket():
+    """Manually trigger premarket prep."""
+    from agent.brain import job_premarket_prep
+    await job_premarket_prep()
+    return {"message": "Premarket prep completed"}
+
+
+@router.post("/agent/brain/scan")
+async def trigger_morning_scan():
+    """Manually trigger morning scan."""
+    from agent.brain import job_morning_scan
+    await job_morning_scan()
+    return {"message": "Morning scan completed"}
+
+
+@router.post("/agent/brain/execute")
+async def trigger_execution():
+    """Manually trigger execution of morning scan candidates."""
+    from agent.brain import job_market_open_execution
+    await job_market_open_execution()
+    return {"message": "Execution completed"}
+
+
+@router.post("/agent/brain/eod")
+async def trigger_eod():
+    """Manually trigger EOD summary."""
+    from agent.brain import job_eod_summary
+    await job_eod_summary()
+    return {"message": "EOD summary sent"}
+
+
+@router.get("/agent/brain/candidates")
+async def get_todays_candidates():
+    """Get today's selected candidates."""
+    from agent.brain import get_brain
+    brain = get_brain()
+    return {
+        "candidates": brain.todays_candidates,
+        "count":      len(brain.todays_candidates),
+    }

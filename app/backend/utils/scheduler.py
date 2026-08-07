@@ -9,106 +9,59 @@ logger = logging.getLogger("tradedo.scheduler")
 scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
 
 
-# ─── Confidence Threshold for Auto-Alerts ─────────────────────
-STRONG_SIGNAL_THRESHOLD = 70   # Only alert if confidence >= 70%
-COMPOSITE_THRESHOLD     = 65   # AND composite score >= 65
+# ═══════════════════════════════════════════════════════════════
+#   AGENT BRAIN JOBS
+# ═══════════════════════════════════════════════════════════════
+
+async def scheduled_premarket_prep():
+    """8:30 AM - Premarket preparation."""
+    from agent.brain import job_premarket_prep
+    try:
+        await job_premarket_prep()
+    except Exception as e:
+        logger.error(f"Premarket prep failed: {e}", exc_info=True)
 
 
-# ─── Job Functions ────────────────────────────────────────────
-
-async def auto_refresh_watchlist():
-    """Refresh predictions and send alerts for strong signals."""
-    from database.db import get_watchlist, save_prediction
-    from ml.engine import predict_full
-    from utils.telegram_bot import send_signal_alert
-
-    logger.info("⏰ Auto-refresh + alert check...")
-
-    symbols = get_watchlist()
-    updated = 0
-    alerted = 0
-
-    for symbol in symbols:
-        try:
-            # Get FULL prediction with sentiment + trade plan
-            result = predict_full(symbol, mode="swing")
-            save_prediction(result)
-            updated += 1
-
-            # Check if it's a STRONG signal → send alert
-            confidence = result.get("confidence_pct", 0)
-            composite  = result.get("composite", {}).get("composite_score", 0)
-            signal     = result.get("signal")
-
-            if (signal in ("BUY", "SELL") and 
-                confidence >= STRONG_SIGNAL_THRESHOLD and
-                composite >= COMPOSITE_THRESHOLD):
-                
-                # Check if we already alerted this symbol today
-                if not _was_alerted_recently(symbol):
-                    await send_signal_alert(result)
-                    _mark_alerted(symbol)
-                    alerted += 1
-                    logger.info(f"  📱 Alert sent for {symbol}")
-
-        except Exception as e:
-            logger.warning(f"Refresh failed for {symbol}: {e}")
-
-    logger.info(f"✅ Refresh done: {updated}/{len(symbols)} updated, {alerted} alerts sent")
+async def scheduled_morning_scan():
+    """8:45 AM - Morning market scan."""
+    from agent.brain import job_morning_scan
+    try:
+        await job_morning_scan()
+    except Exception as e:
+        logger.error(f"Morning scan failed: {e}", exc_info=True)
 
 
-async def morning_summary():
-    """
-    Runs at 9:00 AM IST.
-    Scan watchlist and send morning summary.
-    """
-    from database.db import get_watchlist
-    from ml.engine import predict
-    from utils.telegram_bot import send_daily_summary
-
-    logger.info("🌅 Morning summary starting...")
-
-    symbols = get_watchlist()
-    predictions = []
-
-    for symbol in symbols:
-        try:
-            p = predict(symbol, mode="swing")
-            predictions.append(p)
-        except Exception as e:
-            logger.warning(f"Failed for {symbol}: {e}")
-
-    if predictions:
-        await send_daily_summary(predictions)
-        logger.info(f"✅ Morning summary sent ({len(predictions)} stocks)")
-
-    # Clear alert history for new day
-    _clear_alert_history()
+async def scheduled_market_open_execution():
+    """9:15 AM - Execute trades at market open."""
+    from agent.brain import job_market_open_execution
+    try:
+        await job_market_open_execution()
+    except Exception as e:
+        logger.error(f"Market execution failed: {e}", exc_info=True)
 
 
-async def eod_summary():
-    """Runs at 3:45 PM IST — end of day."""
-    from utils.telegram_bot import send_message
-    logger.info("🌆 EOD summary...")
-    
-    await send_message(
-        "🌆 <b>Market Closed</b>\n\n"
-        "Check dashboard for today's performance.\n"
-        "See you tomorrow! 👋",
-        silent=True
-    )
+async def scheduled_eod_summary():
+    """3:30 PM - End of day summary."""
+    from agent.brain import job_eod_summary
+    try:
+        await job_eod_summary()
+    except Exception as e:
+        logger.error(f"EOD summary failed: {e}", exc_info=True)
 
+
+# ═══════════════════════════════════════════════════════════════
+#   MONITORING JOBS (from earlier phases)
+# ═══════════════════════════════════════════════════════════════
 
 async def live_monitor_job():
-    """Monitor open paper trades every minute."""
+    """Monitor open trades every minute."""
     from agent.live_monitor import monitor_open_trades
     try:
         result = await monitor_open_trades()
-        # Only log if actions taken (avoid spam)
         if result.get("actions_taken", 0) > 0:
-            logger.info(f"⚡ Live monitor: {result['actions_taken']} actions")
+            logger.info(f"⚡ Monitor: {result['actions_taken']} actions")
     except Exception as e:
-        logger.error(f"Live monitor failed: {e}", exc_info=True)
+        logger.error(f"Monitor failed: {e}", exc_info=True)
 
 
 async def news_exit_check():
@@ -117,177 +70,101 @@ async def news_exit_check():
     try:
         result = await news_exit_job()
         if result.get("exits_executed", 0) > 0:
-            logger.warning(
-                f"🚨 News-based exits: {result['exits_executed']} trades closed"
-            )
+            logger.warning(f"🚨 News exits: {result['exits_executed']}")
     except Exception as e:
-        logger.error(f"News exit check failed: {e}", exc_info=True)
+        logger.error(f"News exit failed: {e}", exc_info=True)
 
 
 async def websocket_sync_job():
-    """Sync WebSocket subscriptions periodically."""
+    """Sync WebSocket subscriptions."""
     try:
         from agent.websocket_stream import sync_subscriptions, get_streamer
-        
         streamer = get_streamer()
         if streamer.is_running:
             result = sync_subscriptions()
             if result.get("added") or result.get("removed"):
-                logger.info(
-                    f"📡 WebSocket sync: +{len(result.get('added',[]))} "
-                    f"-{len(result.get('removed',[]))}"
-                )
+                logger.info(f"📡 WS sync: +{len(result.get('added',[]))}")
     except Exception as e:
-        logger.debug(f"WebSocket sync failed: {e}")
+        logger.debug(f"WS sync failed: {e}")
 
 
-# ─── Alert Deduplication (in-memory) ──────────────────────────
-_alerted_today: set = set()
-
-def _was_alerted_recently(symbol: str) -> bool:
-    return symbol in _alerted_today
-
-def _mark_alerted(symbol: str):
-    _alerted_today.add(symbol)
-
-def _clear_alert_history():
-    global _alerted_today
-    _alerted_today = set()
+async def cross_asset_refresh():
+    """Refresh cross-asset data."""
+    from data_pipeline.cross_asset import refresh_cross_asset_data
+    try:
+        refresh_cross_asset_data()
+    except Exception as e:
+        logger.error(f"Cross-asset refresh failed: {e}")
 
 
-# ─── Scheduler Setup ──────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+#   SETUP ALL JOBS
+# ═══════════════════════════════════════════════════════════════
 
 def setup_scheduler():
     """Register all scheduled jobs."""
-
-    async def refresh_cross_asset():
-        """Refresh cross-asset data (Nifty, VIX, etc.) once per day."""
-        from data_pipeline.cross_asset import refresh_cross_asset_data
-        logger.info("🔄 Daily cross-asset refresh...")
-        refresh_cross_asset_data()
-
-    async def morning_agent_scan():
-        """
-        Runs at 8:45 AM IST (before market opens).
-        Scans full universe and sends top picks via Telegram.
-        """
-        from agent.scanner import scan_market
-        from database.db import save_scan_result, clear_todays_scans
-        from utils.telegram_bot import send_message
-        
-        logger.info("🌅 Morning agent scan starting...")
-        
-        try:
-            clear_todays_scans()
-            result = scan_market(tier="tier1", mode="intraday")
-            
-            # Save to DB
-            for candidate in result["candidates"]:
-                save_scan_result(candidate, is_selected=True)
-            
-            # Format Telegram message
-            stats = result["stats"]
-            candidates = result["candidates"]
-            
-            msg = "🌅 <b>Morning Market Scan Complete</b>\n\n"
-            msg += f"📊 Scanned: {stats['total_scanned']} stocks in {stats['scan_time_sec']}s\n"
-            msg += f"🎯 Regime: <b>{stats['market_regime']}</b>\n"
-            msg += f"🏆 Found: <b>{stats['candidates_found']}</b> candidates\n\n"
-        
-            if candidates:
-                msg += "<b>Top Intraday Picks:</b>\n"
-                for i, c in enumerate(candidates[:5], 1):
-                    symbol = c["symbol"].replace(".NS", "")
-                    emoji = "🟢" if c["signal"] == "BUY" else "🔴"
-                    msg += (
-                        f"{i}. {emoji} <b>{symbol}</b>  "
-                        f"{c['signal']}  "
-                        f"Score: <b>{c['composite_score']}</b>  "
-                        f"₹{c['current_price']:,.0f}\n"
-                    )
-            else:
-                msg += "🟡 No strong candidates today.\n"
-            
-            msg += f"\n📱 <a href='http://localhost:3000/agent'>View Agent Dashboard</a>"
-            
-            await send_message(msg)
-            logger.info(f"✅ Morning scan sent — {len(candidates)} candidates")
-        
-        except Exception as e:
-            logger.error(f"Morning scan failed: {e}", exc_info=True)
-
-
-    # 1. Cross-Asset Refresh at 8:30 AM (Mon-Fri)
+    
+    # ─── AGENT BRAIN JOBS ────────────────────────────────────
+    
+    # 8:30 AM - Premarket prep
     scheduler.add_job(
-        refresh_cross_asset,
+        scheduled_premarket_prep,
         CronTrigger(
-            hour=8, minute=30,     # Before market opens
+            hour=8, minute=30,
             day_of_week="mon-fri",
             timezone="Asia/Kolkata"
         ),
-        id="cross_asset_refresh",
-        name="Daily Cross-Asset Data Refresh",
-        replace_existing=True,
-    )
-
-    # 2. Morning Agent Scan at 8:45 AM (Mon-Fri)
-    scheduler.add_job(
-        morning_agent_scan,
-        CronTrigger(
-            hour=8, minute=45,   # 8:45 AM (30 mins before market)
-            day_of_week="mon-fri",
-            timezone="Asia/Kolkata"
-        ),
-        id="morning_agent_scan",
-        name="Morning Agent Scan",
+        id="brain_premarket",
+        name="Agent Brain: Premarket Prep",
         replace_existing=True,
     )
     
-    # 3. Morning summary at 9:00 AM (Mon-Fri)
+    # 8:45 AM - Morning scan
     scheduler.add_job(
-        morning_summary,
+        scheduled_morning_scan,
         CronTrigger(
-            hour=9, minute=0,
+            hour=8, minute=45,
             day_of_week="mon-fri",
             timezone="Asia/Kolkata"
         ),
-        id="morning_summary",
-        name="Morning Summary",
+        id="brain_scan",
+        name="Agent Brain: Morning Scan",
         replace_existing=True,
     )
-
-    # 4. Auto refresh every 15 mins during market (Mon-Fri)
+    
+    # 9:15 AM - Market open execution
     scheduler.add_job(
-        auto_refresh_watchlist,
+        scheduled_market_open_execution,
         CronTrigger(
-            hour="9-15",
-            minute="*/15",
+            hour=9, minute=15,
             day_of_week="mon-fri",
             timezone="Asia/Kolkata"
         ),
-        id="watchlist_refresh",
-        name="Watchlist Refresh + Alerts",
+        id="brain_execution",
+        name="Agent Brain: Market Open Execution",
         replace_existing=True,
     )
-
-    # 5. EOD at 3:45 PM
+    
+    # 3:30 PM - EOD summary
     scheduler.add_job(
-        eod_summary,
+        scheduled_eod_summary,
         CronTrigger(
-            hour=15, minute=45,
+            hour=15, minute=30,
             day_of_week="mon-fri",
             timezone="Asia/Kolkata"
         ),
-        id="eod_summary",
-        name="EOD Summary",
+        id="brain_eod",
+        name="Agent Brain: EOD Summary",
         replace_existing=True,
     )
-
+    
+    # ─── MONITORING JOBS ─────────────────────────────────────
+    
+    # Live monitor - every minute during market
     scheduler.add_job(
         live_monitor_job,
         CronTrigger(
-            hour="9-15",
-            minute="*",           # Every minute
+            hour="9-15", minute="*",
             day_of_week="mon-fri",
             timezone="Asia/Kolkata"
         ),
@@ -295,34 +172,45 @@ def setup_scheduler():
         name="Live Trade Monitor",
         replace_existing=True,
     )
-
+    
+    # News exit - every 5 minutes
     scheduler.add_job(
-    news_exit_check,
-    CronTrigger(
-        hour="9-15",
-        minute="*/5",           # Every 5 minutes
-        day_of_week="mon-fri",
-        timezone="Asia/Kolkata"
-    ),
-    id="news_exit_check",
-    name="News-Based Exit Trigger",
-    replace_existing=True,
+        news_exit_check,
+        CronTrigger(
+            hour="9-15", minute="*/5",
+            day_of_week="mon-fri",
+            timezone="Asia/Kolkata"
+        ),
+        id="news_exit",
+        name="News-Based Exit Checker",
+        replace_existing=True,
     )
-
+    
+    # WebSocket sync - every 2 minutes
     scheduler.add_job(
-    websocket_sync_job,
-    CronTrigger(
-        hour="9-15",
-        minute="*/2",       # Every 2 minutes
-        day_of_week="mon-fri",
-        timezone="Asia/Kolkata"
-    ),
-    id="websocket_sync",
-    name="WebSocket Subscription Sync",
-    replace_existing=True,
+        websocket_sync_job,
+        CronTrigger(
+            hour="9-15", minute="*/2",
+            day_of_week="mon-fri",
+            timezone="Asia/Kolkata"
+        ),
+        id="ws_sync",
+        name="WebSocket Sync",
+        replace_existing=True,
     )
-
-
-    logger.info("✅ Scheduler configured with 7 jobs")
+    
+    # Cross-asset refresh - once per day
+    scheduler.add_job(
+        cross_asset_refresh,
+        CronTrigger(
+            hour=8, minute=15,
+            day_of_week="mon-fri",
+            timezone="Asia/Kolkata"
+        ),
+        id="cross_asset_refresh",
+        name="Daily Cross-Asset Refresh",
+        replace_existing=True,
+    )
+    
+    logger.info("✅ Scheduler configured with all agent jobs")
     return scheduler
-

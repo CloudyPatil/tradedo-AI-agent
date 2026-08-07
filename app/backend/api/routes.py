@@ -773,3 +773,48 @@ async def monitor_status():
         "is_market_open": monitor._is_market_open(),
         "stats":          monitor.stats,
     }
+
+# ADD to routes.py
+
+@router.get("/agent/trailing/status")
+async def trailing_stop_status():
+    """Get trailing stop manager statistics."""
+    from agent.trailing_stop import get_trailing_manager
+    manager = get_trailing_manager()
+    return {
+        "stats": manager.stats,
+        "config": {
+            "breakeven_trigger": "50% to T1",
+            "profit_lock":       "80% of T1 gain",
+            "atr_trail":         "1x ATR below/above high/low",
+        }
+    }
+
+
+@router.post("/agent/trailing/test/{trade_id}")
+async def test_trailing_for_trade(trade_id: int):
+    """Manually check trailing stop for a specific trade."""
+    from agent.trailing_stop import get_trailing_manager
+    from data_pipeline.price_provider import get_price_provider
+    from database.db import get_trade_by_id
+    
+    trade = get_trade_by_id(trade_id)
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    
+    provider = get_price_provider()
+    price_data = provider.get_ltp(trade["symbol"])
+    
+    if not price_data:
+        raise HTTPException(status_code=500, detail="Could not fetch price")
+    
+    manager = get_trailing_manager()
+    result = manager.evaluate_trailing_stop(trade, price_data["last_price"])
+    
+    return {
+        "trade_id": trade_id,
+        "symbol":   trade["symbol"],
+        "current_price": price_data["last_price"],
+        "current_sl":    trade.get("trailing_sl") or trade["stop_loss"],
+        "action":   result or "No SL change needed",
+    }

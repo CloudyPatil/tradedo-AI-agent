@@ -16,6 +16,7 @@ import logging
 from typing import Dict, List, Optional
 from datetime import datetime, time as dt_time
 from concurrent.futures import ThreadPoolExecutor
+from agent.trailing_stop import check_trailing_stops
 
 from database.db import (
     get_open_trades, update_trade, get_agent_state,
@@ -89,6 +90,14 @@ class LiveMonitor:
         if not prices:
             logger.warning("No prices fetched, skipping check")
             return {"status": "NO_PRICES"}
+
+        # ─── NEW: Update trailing stops FIRST (before exit check) ─
+        trailing_updates = check_trailing_stops(open_trades, prices)
+    
+        if trailing_updates:
+            logger.info(f"🎯 {len(trailing_updates)} trailing stop updates")
+            # Reload trades to get updated SL values
+            open_trades = get_open_trades()
         
         # Check each trade
         actions_taken = []
@@ -119,8 +128,10 @@ class LiveMonitor:
         return {
             "status":         "OK",
             "trades_checked": len(open_trades),
+            "trailing_updates":    len(trailing_updates),
             "actions_taken":  len(actions_taken),
             "actions":        actions_taken,
+            "trailing_details":    trailing_updates,
             "stats":          self.stats,
         }
     

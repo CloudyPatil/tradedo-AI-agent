@@ -124,6 +124,23 @@ async def news_exit_check():
         logger.error(f"News exit check failed: {e}", exc_info=True)
 
 
+async def websocket_sync_job():
+    """Sync WebSocket subscriptions periodically."""
+    try:
+        from agent.websocket_stream import sync_subscriptions, get_streamer
+        
+        streamer = get_streamer()
+        if streamer.is_running:
+            result = sync_subscriptions()
+            if result.get("added") or result.get("removed"):
+                logger.info(
+                    f"📡 WebSocket sync: +{len(result.get('added',[]))} "
+                    f"-{len(result.get('removed',[]))}"
+                )
+    except Exception as e:
+        logger.debug(f"WebSocket sync failed: {e}")
+
+
 # ─── Alert Deduplication (in-memory) ──────────────────────────
 _alerted_today: set = set()
 
@@ -289,6 +306,19 @@ def setup_scheduler():
     ),
     id="news_exit_check",
     name="News-Based Exit Trigger",
+    replace_existing=True,
+    )
+
+    scheduler.add_job(
+    websocket_sync_job,
+    CronTrigger(
+        hour="9-15",
+        minute="*/2",       # Every 2 minutes
+        day_of_week="mon-fri",
+        timezone="Asia/Kolkata"
+    ),
+    id="websocket_sync",
+    name="WebSocket Subscription Sync",
     replace_existing=True,
     )
 

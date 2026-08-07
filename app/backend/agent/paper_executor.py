@@ -172,6 +172,14 @@ class PaperExecutor:
             open_positions   = agent_state["open_positions"] + 1,
             trades_today     = agent_state["trades_today"] + 1,
         )
+
+        try:
+            from agent.websocket_stream import get_streamer
+            streamer = get_streamer()
+            if streamer.is_running:
+                streamer.subscribe_symbols([symbol])
+        except Exception as e:
+            logger.debug(f"WebSocket subscribe failed (non-critical): {e}")
         
         # 10. Send Telegram alert
         self._send_entry_alert(trade_id, trade_data, trade_plan)
@@ -375,17 +383,36 @@ class PaperExecutor:
 #   AGENT CONTROL FUNCTIONS
 # ═══════════════════════════════════════════════════════════════
 
+# In agent/paper_executor.py
+
 def start_agent():
-    """Enable the agent to start executing trades."""
+    """Enable the agent to execute trades + start WebSocket."""
     update_agent_state(is_active=1)
     logger.info("🚀 AGENT STARTED")
-    return {"success": True, "message": "Agent activated"}
+    
+    # ── NEW: Start WebSocket streaming ────────────────────────
+    try:
+        from agent.websocket_stream import start_streaming
+        streaming_status = start_streaming()
+        logger.info(f"📡 WebSocket streaming initialized: {streaming_status.get('running')}")
+    except Exception as e:
+        logger.warning(f"WebSocket start failed (non-critical): {e}")
+    
+    return {"success": True, "message": "Agent activated + WebSocket started"}
 
 
 def stop_agent():
-    """Disable the agent (no new trades)."""
+    """Disable agent + stop WebSocket."""
     update_agent_state(is_active=0)
     logger.info("🛑 AGENT STOPPED")
+    
+    # ── NEW: Stop WebSocket ──────────────────────────────────
+    try:
+        from agent.websocket_stream import stop_streaming
+        stop_streaming()
+    except Exception as e:
+        logger.warning(f"WebSocket stop failed: {e}")
+    
     return {"success": True, "message": "Agent deactivated"}
 
 

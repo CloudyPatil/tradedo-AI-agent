@@ -876,3 +876,43 @@ async def test_news_exit_for_trade(trade_id: int):
             "trade_id":   trade_id,
             "message":    "No news-based exit needed",
         }
+
+# ADD to routes.py
+
+@router.post("/agent/websocket/start")
+async def start_websocket():
+    """Manually start WebSocket streaming."""
+    from agent.websocket_stream import start_streaming
+    return start_streaming()
+
+
+@router.post("/agent/websocket/stop")
+async def stop_websocket():
+    """Manually stop WebSocket streaming."""
+    from agent.websocket_stream import stop_streaming
+    return stop_streaming()
+
+
+@router.get("/agent/websocket/status")
+async def websocket_status():
+    """Get WebSocket streamer status."""
+    from agent.websocket_stream import get_streamer
+    return get_streamer().get_status()
+
+
+@router.get("/agent/websocket/prices")
+async def websocket_prices():
+    """Get all cached prices from WebSocket."""
+    from agent.websocket_stream import get_streamer
+    streamer = get_streamer()
+    return {
+        "prices": streamer.get_all_prices(),
+        "count":  len(streamer.get_all_prices()),
+    }
+
+
+@router.post("/agent/websocket/sync")
+async def sync_websocket_subscriptions():
+    """Sync WebSocket subscriptions to open trades."""
+    from agent.websocket_stream import sync_subscriptions
+    return sync_subscriptions()

@@ -753,3 +753,23 @@ async def get_journal_full():
     """Get all closed trades with rich journal data."""
     from agent.trade_journal import get_all_closed_trades_with_journal
     return {"trades": get_all_closed_trades_with_journal()}
+
+# ADD to routes.py
+
+@router.post("/agent/monitor/run")
+async def run_monitor_manually():
+    """Manually trigger the live monitor (for testing)."""
+    from agent.live_monitor import run_monitor_now
+    return run_monitor_now()
+
+
+@router.get("/agent/monitor/status")
+async def monitor_status():
+    """Get current monitor status."""
+    from agent.live_monitor import get_monitor
+    monitor = get_monitor()
+    
+    return {
+        "is_market_open": monitor._is_market_open(),
+        "stats":          monitor.stats,
+    }

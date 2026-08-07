@@ -99,6 +99,18 @@ async def eod_summary():
     )
 
 
+async def live_monitor_job():
+    """Monitor open paper trades every minute."""
+    from agent.live_monitor import monitor_open_trades
+    try:
+        result = await monitor_open_trades()
+        # Only log if actions taken (avoid spam)
+        if result.get("actions_taken", 0) > 0:
+            logger.info(f"⚡ Live monitor: {result['actions_taken']} actions")
+    except Exception as e:
+        logger.error(f"Live monitor failed: {e}", exc_info=True)
+
+
 # ─── Alert Deduplication (in-memory) ──────────────────────────
 _alerted_today: set = set()
 
@@ -241,5 +253,20 @@ def setup_scheduler():
         replace_existing=True,
     )
 
+    scheduler.add_job(
+        live_monitor_job,
+        CronTrigger(
+            hour="9-15",
+            minute="*",           # Every minute
+            day_of_week="mon-fri",
+            timezone="Asia/Kolkata"
+        ),
+        id="live_monitor",
+        name="Live Trade Monitor",
+        replace_existing=True,
+    )
+
+
     logger.info("✅ Scheduler configured with 5 jobs")
     return scheduler
+

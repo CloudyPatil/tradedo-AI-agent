@@ -1047,3 +1047,67 @@ async def trade_distribution():
     """Trade P&L distribution."""
     from agent.analytics import get_analytics
     return get_analytics().trade_distribution()
+
+
+# ═══════════════════════════════════════════════════════════════
+#   Risk Analytics Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/risk/report")
+async def risk_report():
+    """Complete risk report."""
+    from agent.risk_analytics import get_risk_report
+    return get_risk_report()
+
+
+@router.get("/risk/score")
+async def risk_score():
+    """Overall portfolio risk score."""
+    from agent.risk_analytics import get_risk_analytics
+    return get_risk_analytics().overall_risk_score()
+
+
+@router.get("/risk/heat")
+async def portfolio_heat():
+    """Portfolio heat (capital at risk)."""
+    from agent.risk_analytics import get_risk_analytics
+    return get_risk_analytics().portfolio_heat()
+
+
+@router.get("/risk/var")
+async def value_at_risk():
+    """Value at Risk calculations."""
+    from agent.risk_analytics import get_risk_analytics
+    a = get_risk_analytics()
+    return {
+        "var":                a.value_at_risk(),
+        "expected_shortfall": a.expected_shortfall(),
+    }
+
+
+@router.get("/risk/concentration")
+async def sector_concentration():
+    """Sector concentration analysis."""
+    from agent.risk_analytics import get_risk_analytics
+    return get_risk_analytics().sector_concentration()
+
+
+@router.get("/risk/diversification")
+async def diversification():
+    """Diversification score."""
+    from agent.risk_analytics import get_risk_analytics
+    return get_risk_analytics().diversification_score()
+
+
+@router.get("/risk/positions")
+async def position_risks():
+    """Detailed risk per open position."""
+    from agent.risk_analytics import get_risk_analytics
+    return {"positions": get_risk_analytics().position_risk_breakdown()}
+
+
+@router.get("/risk/stress-test")
+async def stress_test():
+    """Stress test scenarios."""
+    from agent.risk_analytics import get_risk_analytics
+    return get_risk_analytics().stress_test()

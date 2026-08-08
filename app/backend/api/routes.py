@@ -971,3 +971,79 @@ async def get_todays_candidates():
         "candidates": brain.todays_candidates,
         "count":      len(brain.todays_candidates),
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+#   Performance Analytics Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/analytics/performance")
+async def performance_report():
+    """Complete performance report."""
+    from agent.analytics import get_performance_report
+    return get_performance_report()
+
+
+@router.get("/analytics/equity-curve")
+async def equity_curve():
+    """Equity curve data for charting."""
+    from agent.analytics import get_equity_curve
+    return {"curve": get_equity_curve()}
+
+
+@router.get("/analytics/sharpe")
+async def sharpe_ratio():
+    """Just the Sharpe ratio."""
+    from agent.analytics import get_analytics
+    a = get_analytics()
+    return {
+        "sharpe":  a.sharpe_ratio(),
+        "sortino": a.sortino_ratio(),
+        "calmar":  a.calmar_ratio(),
+    }
+
+
+@router.get("/analytics/drawdown")
+async def drawdown_analysis():
+    """Drawdown analysis."""
+    from agent.analytics import get_analytics
+    a = get_analytics()
+    return {
+        "max_drawdown":    a.max_drawdown(),
+        "recovery_factor": a.recovery_factor(),
+    }
+
+
+@router.get("/analytics/kelly")
+async def kelly_analysis():
+    """Kelly Criterion for optimal position sizing."""
+    from agent.analytics import get_analytics
+    return get_analytics().kelly_criterion()
+
+
+@router.get("/analytics/streaks")
+async def streaks_analysis():
+    """Win/loss streaks analysis."""
+    from agent.analytics import get_analytics
+    return get_analytics().streaks()
+
+
+@router.get("/analytics/hourly")
+async def hourly_performance():
+    """Performance by hour of day."""
+    from agent.analytics import get_analytics
+    return get_analytics().performance_by_hour()
+
+
+@router.get("/analytics/daily")
+async def daily_performance():
+    """Performance by day of week."""
+    from agent.analytics import get_analytics
+    return get_analytics().performance_by_day_of_week()
+
+
+@router.get("/analytics/distribution")
+async def trade_distribution():
+    """Trade P&L distribution."""
+    from agent.analytics import get_analytics
+    return get_analytics().trade_distribution()

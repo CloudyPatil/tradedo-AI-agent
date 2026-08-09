@@ -1,0 +1,291 @@
+/* E:\tradedo\app\frontend\app\globals.css */
+
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ═══════════════════════════════════════════════════════════════
+   TRADEDO Theme Configuration (Tailwind v4)
+   ═══════════════════════════════════════════════════════════════ */
+
+@theme inline {
+  /* Colors */
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  
+  /* TRADEDO Brand Colors */
+  --color-brand: #FF5722;
+  --color-brand-50: #FFF3F0;
+  --color-brand-100: #FFE0D6;
+  --color-brand-200: #FFB59E;
+  --color-brand-300: #FF8A66;
+  --color-brand-400: #FF5722;
+  --color-brand-500: #E64A19;
+  --color-brand-600: #D84315;
+  --color-brand-700: #BF360C;
+  --color-brand-800: #A02D0A;
+  --color-brand-900: #7F2408;
+  
+  /* Trading Colors */
+  --color-bull: #22C55E;
+  --color-bull-light: #4ADE80;
+  --color-bull-dark: #16A34A;
+  --color-bull-muted: rgba(34, 197, 94, 0.15);
+  
+  --color-bear: #EF4444;
+  --color-bear-light: #F87171;
+  --color-bear-dark: #DC2626;
+  --color-bear-muted: rgba(239, 68, 68, 0.15);
+  
+  --color-neutral: #F59E0B;
+  --color-neutral-light: #FBBF24;
+  --color-neutral-dark: #D97706;
+  --color-neutral-muted: rgba(245, 158, 11, 0.15);
+  
+  /* Border Radius */
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  
+  /* Fonts */
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), monospace;
+  --font-display: var(--font-space-grotesk), sans-serif;
+  
+  /* Animations */
+  --animate-fade-in: fadeIn 0.3s ease-in-out;
+  --animate-slide-up: slideUp 0.4s ease-out;
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-shimmer: shimmer 2s linear infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Keyframes
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes slideUp {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Theme Variables (Light + Dark)
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Light Theme - Warm Cream */
+  --background: 60 20% 96%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 14 100% 57%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 60 10% 92%;
+  --secondary-foreground: 0 0% 10%;
+  --muted: 60 10% 90%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 14 100% 95%;
+  --accent-foreground: 14 100% 40%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 60 10% 88%;
+  --input: 60 10% 88%;
+  --ring: 14 100% 57%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  /* Dark Theme - Terminal Black */
+  --background: 0 0% 4%;
+  --foreground: 0 0% 95%;
+  --card: 0 0% 8%;
+  --card-foreground: 0 0% 95%;
+  --popover: 0 0% 8%;
+  --popover-foreground: 0 0% 95%;
+  --primary: 14 100% 57%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 12%;
+  --secondary-foreground: 0 0% 95%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 55%;
+  --accent: 0 0% 15%;
+  --accent-foreground: 0 0% 95%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 15%;
+  --input: 0 0% 15%;
+  --ring: 14 100% 57%;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Base Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 9999px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Custom Components (TRADEDO Style)
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  /* Terminal corner brackets */
+  .corner-brackets {
+    position: relative;
+  }
+  
+  .corner-brackets::before,
+  .corner-brackets::after {
+    content: "";
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-color: currentColor;
+    opacity: 0.4;
+  }
+  
+  .corner-brackets::before {
+    top: 4px;
+    left: 4px;
+    border-top: 1px solid;
+    border-left: 1px solid;
+  }
+  
+  .corner-brackets::after {
+    bottom: 4px;
+    right: 4px;
+    border-bottom: 1px solid;
+    border-right: 1px solid;
+  }
+  
+  /* Data cell (Bloomberg style) */
+  .data-cell {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+  }
+  
+  /* Ticker card hover effect */
+  .ticker-card {
+    transition: all 0.2s ease;
+  }
+  
+  .ticker-card:hover {
+    border-color: var(--color-brand);
+    box-shadow: 0 10px 15px -3px var(--color-brand-muted, rgba(255, 87, 34, 0.1));
+  }
+  
+  /* Value colors for trading */
+  .value-bull {
+    color: var(--color-bull);
+  }
+  
+  .dark .value-bull {
+    color: var(--color-bull-light);
+  }
+  
+  .value-bear {
+    color: var(--color-bear);
+  }
+  
+  .dark .value-bear {
+    color: var(--color-bear-light);
+  }
+  
+  .value-neutral {
+    color: var(--color-neutral);
+  }
+  
+  .dark .value-neutral {
+    color: var(--color-neutral-light);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Utility Classes
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer utilities {
+  .text-glow-brand {
+    text-shadow: 0 0 20px rgba(255, 87, 34, 0.5);
+  }
+  
+  .grid-overlay {
+    background-image: 
+      linear-gradient(to right, currentColor 1px, transparent 1px),
+      linear-gradient(to bottom, currentColor 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.03;
+  }
+  
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+  
+  .font-display {
+    font-family: var(--font-display);
+  }
+  
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}

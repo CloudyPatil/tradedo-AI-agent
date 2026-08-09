@@ -1,21 +1,18 @@
 # E:\tradedo\.gitignore
 
-# ── Python ─────────────────────────
+# Python
 venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-*.so
-.pytest_cache/
 
-# ── Environment ────────────────────
+# Environment
 .env
 .env.local
-.env.production
 
-# ── Data & Models (too big) ────────
+# Data & Models (too big)
 data/
 models/
 logs/
@@ -23,27 +20,18 @@ logs/
 *.sqlite
 *.pkl
 
-# ── Node / Next.js ─────────────────
-node_modules/
-.next/
-out/
-build/
-dist/
-*.tsbuildinfo
-next-env.d.ts
-
-# ── IDE ────────────────────────────
+# IDE
 .vscode/
 .idea/
 *.swp
-*.swo
 
-# ── OS ─────────────────────────────
+# OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# ── Misc ───────────────────────────
-*.log
-.cache/
-coverage/
+# Frontend build artifacts (backup - frontend has its own gitignore too)
+**/node_modules/
+**/.next/
+**/out/
+**/*.tsbuildinfo
+**/next-env.d.ts

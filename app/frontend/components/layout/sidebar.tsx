@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, TrendingUp, Sparkles, Wallet,
   Bot, Target, Search, BarChart3, FileText, Settings,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ const navItems = [
   { href: "/agent",      label: "Autonomous Agent", icon: Bot },
   { href: "/trades",     label: "Trades",           icon: Target },
   { href: "/analytics",  label: "Analytics",        icon: BarChart3 },
+  { href: "/risk",       label: "Risk Dashboard",   icon: Shield },
   { href: "/reports",    label: "Reports",          icon: FileText },
   { href: "/settings",   label: "Settings",         icon: Settings },
 ];

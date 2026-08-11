@@ -5,6 +5,8 @@ import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Toaster } from "sonner";
+import { CommandPalette } from "@/components/common/command-palette";
+import { ErrorBoundary } from "@/components/common/error-boundary";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -39,7 +41,10 @@ export default function RootLayout({
     >
       <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>
-          {children}
+          <ErrorBoundary>
+            {children}
+            <CommandPalette />
+          </ErrorBoundary>
           <Toaster
             position="top-right"
             theme="system"

@@ -7,6 +7,8 @@ import { Crosshair } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import { formatTime, formatDate } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export function Topbar() {
   const [time, setTime] = React.useState<Date | null>(null);
@@ -48,6 +50,25 @@ export function Topbar() {
 
         {/* Right: Time + Theme + User */}
         <div className="flex items-center gap-6">
+            {/* NEW: Search Command Button */}
+            <button 
+              onClick={() => {
+                const event = new KeyboardEvent("keydown", {
+                  key: "k",
+                  metaKey: true,
+                  ctrlKey: true,
+                });
+                document.dispatchEvent(event);
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-secondary/50 hover:bg-accent transition-colors text-xs text-muted-foreground"
+            >
+              <Search size={14} />
+              <span>Search...</span>
+              <kbd className="ml-4 px-1.5 py-0.5 text-[10px] font-mono rounded bg-background border border-border">
+                ⌘K
+              </kbd>
+            </button>
+
           <div className="text-xs font-mono text-right">
             <p className="text-foreground font-bold tabular-nums min-w-[80px]">
               {time ? formatTime(time) : "--:--:--"}

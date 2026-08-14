@@ -110,28 +110,68 @@ def fetch_swing_data(symbol: str) -> pd.DataFrame:
 
 def fetch_intraday_data(symbol: str) -> pd.DataFrame:
     """
-    Fetch 7 days of 5-min data for v3 intraday model.
-    Need enough for 200-period rolling ATR percentile.
+    Fetch intraday data - Upstox first, yfinance fallback.
     """
     logger.info(f"Fetching intraday data for {symbol}")
     
+    # Try Upstox first
+    try:
+        from data_pipeline.upstox_api import get_upstox_client
+        client = get_upstox_client()
+        
+        if client.is_ready:
+            candles = client.get_intraday_candles(symbol, "5minute")
+            
+            if candles and len(candles) >= 50:
+                df = pd.DataFrame(candles)
+                df["Datetime"] = pd.to_datetime(df["timestamp"])
+                df.set_index("Datetime", inplace=True)
+                df.rename(columns={
+                    "open": "Open",
+                    "high": "High",
+                    "low": "Low",
+                    "close": "Close",
+                    "volume": "Volume"
+                }, inplace=True)
+                
+                # Get historical too for 200 rolling
+                from datetime import datetime, timedelta
+                from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+                to_date = datetime.now().strftime("%Y-%m-%d")
+                
+                hist_candles = client.get_historical_candles(symbol, "30minute", from_date, to_date)
+                if hist_candles:
+                    hist_df = pd.DataFrame(hist_candles)
+                    hist_df["Datetime"] = pd.to_datetime(hist_df["timestamp"])
+                    hist_df.set_index("Datetime", inplace=True)
+                    hist_df.rename(columns={
+                        "open": "Open", "high": "High", "low": "Low",
+                        "close": "Close", "volume": "Volume"
+                    }, inplace=True)
+                    
+                    df = pd.concat([hist_df, df]).drop_duplicates()
+                
+                df = df.sort_index()
+                logger.info(f"  → Upstox: {len(df)} candles")
+                return df
+    
+    except Exception as e:
+        logger.warning(f"Upstox intraday fetch failed: {e}, falling back to yfinance")
+    
+    # Fallback to yfinance
     df = yf.download(
-        symbol,
-        period="7d",       # 7 days = ~525 candles (enough for 200-period rolling)
-        interval="5m",
-        auto_adjust=True,
-        progress=False
+        symbol, period="7d", interval="5m",
+        auto_adjust=True, progress=False
     )
-
+    
     if df.empty:
         raise ValueError(f"No intraday data for {symbol}")
-
+    
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.droplevel(1)
-
-    df.dropna(inplace=True)
     
-    logger.info(f"  → {len(df)} 5-min candles")
+    df.dropna(inplace=True)
+    logger.info(f"  → yfinance fallback: {len(df)} candles")
     return df
 
 

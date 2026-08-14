@@ -97,6 +97,17 @@ async def cross_asset_refresh():
         logger.error(f"Cross-asset refresh failed: {e}")
 
 
+async def youtube_sync_job():
+    """Sync YouTube channels every 4 hours."""
+    from data_pipeline.youtube_monitor import sync_all_channels
+    try:
+        logger.info("🎥 Starting YouTube sync...")
+        result = sync_all_channels()
+        logger.info(f"✅ YouTube sync: {result['videos_added']} videos, {result['transcripts_fetched']} transcripts")
+    except Exception as e:
+        logger.error(f"YouTube sync failed: {e}", exc_info=True)
+
+
 # ═══════════════════════════════════════════════════════════════
 #   SETUP ALL JOBS
 # ═══════════════════════════════════════════════════════════════
@@ -211,6 +222,19 @@ def setup_scheduler():
         name="Daily Cross-Asset Refresh",
         replace_existing=True,
     )
+
+    scheduler.add_job(
+    youtube_sync_job,
+    CronTrigger(
+        hour="*/4",             # Every 4 hours
+        minute=0,
+        timezone="Asia/Kolkata"
+    ),
+    id="youtube_sync",
+    name="YouTube Channel Sync",
+    replace_existing=True,
+    )
+
     
     logger.info("✅ Scheduler configured with all agent jobs")
     return scheduler

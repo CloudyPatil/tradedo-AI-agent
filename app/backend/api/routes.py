@@ -1111,3 +1111,78 @@ async def stress_test():
     """Stress test scenarios."""
     from agent.risk_analytics import get_risk_analytics
     return get_risk_analytics().stress_test()
+
+
+# ═══════════════════════════════════════════════════════════════
+#   YouTube Monitoring Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.post("/youtube/sync")
+async def sync_youtube_now():
+    """Manually trigger YouTube sync."""
+    from data_pipeline.youtube_monitor import sync_all_channels
+    return sync_all_channels()
+
+
+@router.get("/youtube/stats")
+async def youtube_cache_stats():
+    """Get YouTube cache statistics."""
+    from data_pipeline.youtube_monitor import get_cache_stats
+    return get_cache_stats()
+
+
+@router.get("/youtube/{symbol}")
+async def get_youtube_intel_endpoint(symbol: str):
+    """Get YouTube analysis for a stock."""
+    from data_pipeline.youtube_data import fetch_youtube_intel
+    return fetch_youtube_intel(symbol)
+
+# ADD to routes.py
+
+@router.get("/upstox/quote/{symbol}")
+async def get_upstox_quote(symbol: str):
+    """Get full market quote from Upstox (with order book)."""
+    from data_pipeline.upstox_api import get_upstox_client
+    client = get_upstox_client()
+    return client.get_market_quote(symbol) or {"error": "No data"}
+
+
+@router.get("/upstox/history/{symbol}")
+async def get_upstox_history(
+    symbol: str,
+    interval: str = Query(default="day", regex="^(day|week|month|minute)$"),
+    days: int = Query(default=30, le=365),
+):
+    """Get historical candles from Upstox."""
+    from data_pipeline.upstox_api import get_upstox_client
+    from datetime import datetime, timedelta
+    
+    client = get_upstox_client()
+    from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    to_date = datetime.now().strftime("%Y-%m-%d")
+    
+    candles = client.get_historical_candles(symbol, interval, from_date, to_date)
+    return {"candles": candles or []}
+
+
+@router.get("/upstox/intraday/{symbol}")
+async def get_upstox_intraday(
+    symbol: str,
+    interval: str = Query(default="5minute", regex="^(1minute|5minute|15minute|30minute)$"),
+):
+    """Get intraday candles from Upstox."""
+    from data_pipeline.upstox_api import get_upstox_client
+    client = get_upstox_client()
+    candles = client.get_intraday_candles(symbol, interval)
+    return {"candles": candles or []}
+
+
+@router.get("/upstox/status")
+async def upstox_full_status():
+    """Get complete Upstox client status."""
+    from data_pipeline.upstox_api import get_upstox_client
+    client = get_upstox_client()
+    return {
+        "status": client.get_status(),
+        "connection": client.test_connection(),
+    }

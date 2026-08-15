@@ -7,13 +7,14 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, TrendingUp, Sparkles, Wallet,
   Bot, Target, Search, BarChart3, FileText, Settings,
-  Shield,
+  Shield, Scan,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/",           label: "Dashboard",        icon: LayoutDashboard },
   { href: "/markets",    label: "Markets",          icon: TrendingUp },
+  { href: "/screener",   label: "Screener",         icon: Scan },
   { href: "/signals",    label: "AI Signals",       icon: Sparkles },
   { href: "/portfolio",  label: "Portfolio",        icon: Wallet },
   { href: "/agent",      label: "Autonomous Agent", icon: Bot },

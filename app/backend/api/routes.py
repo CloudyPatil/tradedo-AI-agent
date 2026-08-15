@@ -1186,3 +1186,70 @@ async def upstox_full_status():
         "status": client.get_status(),
         "connection": client.test_connection(),
     }
+
+# ═══════════════════════════════════════════════════════════════
+#   Universal Screener Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.post("/screener/scan")
+async def trigger_screener_scan(
+    tier: str = Query(default="tier2", regex="^(tier1|tier2|tier3|full)$"),
+    mode: str = Query(default="swing", regex="^(swing|intraday)$"),
+):
+    """
+    Trigger a batch scan of stocks.
+    tier1 = 50 stocks (fast, 2-3 min)
+    tier2 = 100 stocks (medium, 5-7 min)
+    tier3 = 200 stocks (slow, 10-15 min)
+    full = 500 stocks (very slow, 20-30 min)
+    """
+    from agent.screener import scan_universe
+    return scan_universe(tier=tier, mode=mode)
+
+
+@router.get("/screener/stocks")
+async def get_screener_stocks(
+    signal: str = Query(default="ALL"),
+    sector: str = Query(default="ALL"),
+    min_confidence: float = Query(default=0),
+    sort_by: str = Query(default="confidence"),
+    order: str = Query(default="desc"),
+    limit: int = Query(default=500, le=500),
+):
+    """Get all analyzed stocks with filters."""
+    from agent.screener import get_all_analyzed_stocks
+    
+    stocks = get_all_analyzed_stocks(
+        signal=None if signal == "ALL" else signal,
+        sector=None if sector == "ALL" else sector,
+        min_confidence=min_confidence,
+        sort_by=sort_by,
+        order=order,
+        limit=limit,
+    )
+    
+    return {
+        "count": len(stocks),
+        "stocks": stocks,
+    }
+
+
+@router.get("/screener/stats")
+async def screener_stats():
+    """Get screener statistics."""
+    from agent.screener import get_screener_stats
+    return get_screener_stats()
+
+
+@router.get("/screener/top-picks")
+async def top_picks(mode: str = Query(default="swing"), limit: int = 10):
+    """Get top BUY/SELL picks."""
+    from agent.screener import get_top_picks
+    return get_top_picks(mode=mode, limit=limit)
+
+
+@router.get("/screener/universe")
+async def universe_info():
+    """Get universe statistics."""
+    from agent.universe import get_universe_stats
+    return get_universe_stats()

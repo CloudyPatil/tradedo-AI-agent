@@ -43,6 +43,10 @@ export function SystemStatusPanel() {
   );
 }
 
+// In system-status-panel.tsx
+
+// UPDATE the ServiceCard function - add better display for upstox:
+
 function ServiceCard({ name, info }: { name: string; info: any }) {
   const status = info?.status || "unknown";
   const isHealthy = status === "healthy";
@@ -86,7 +90,15 @@ function ServiceCard({ name, info }: { name: string; info: any }) {
           <p>Running: {info.running ? "Yes" : "No"}</p>
         )}
         {info.preferred && (
-          <p>Preferred: {info.preferred}</p>
+          <p>Preferred: <span className="text-brand font-bold">{info.preferred}</span></p>
+        )}
+        {info.upstox_available !== undefined && (
+          <p>Upstox: <span className={info.upstox_available ? "text-bull font-bold" : "text-bear"}>
+            {info.upstox_available ? "✓ Real-time" : "✗ Unavailable"}
+          </span></p>
+        )}
+        {info.active_source && (
+          <p>Source: <span className="text-brand font-bold">{info.active_source}</span></p>
         )}
       </div>
     </div>

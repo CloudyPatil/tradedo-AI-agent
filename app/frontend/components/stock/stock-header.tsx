@@ -52,9 +52,12 @@ export function StockHeader({ symbol }: Props) {
           ) : (
             <>
               <p className="text-4xl font-mono font-bold tabular-nums">
-                ₹{price.toFixed(2)}
+      ₹{price.toFixed(2)}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">LIVE PRICE</p>
+              <div className="flex items-center gap-2 justify-center mt-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-bull animate-pulse" />
+                <p className="text-xs text-bull font-bold">LIVE · UPSTOX</p>
+              </div>
             </>
           )}
         </div>

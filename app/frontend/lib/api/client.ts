@@ -77,4 +77,25 @@ export const tradeoAPI = {
   // ─── Health ───────────────────────────────────────
   getHealth: () =>
     axios.get(`${BACKEND_BASE}/health`).then(r => r.data),
+
+  // Upstox status
+getUpstoxStatus: () =>
+  api.get("/upstox/status").then(r => r.data),
+
+// Upstox quote with depth
+getUpstoxQuote: (symbol: string) =>
+  api.get(`/upstox/quote/${symbol}`).then(r => r.data),
+
+// Upstox historical  
+getUpstoxHistory: (symbol: string, interval: string = "day", days: number = 30) =>
+  api.get(`/upstox/history/${symbol}`, { 
+    params: { interval, days } 
+  }).then(r => r.data),
+
+// Upstox intraday
+getUpstoxIntraday: (symbol: string, interval: string = "5minute") =>
+  api.get(`/upstox/intraday/${symbol}`, {
+    params: { interval }
+  }).then(r => r.data),
+
 };

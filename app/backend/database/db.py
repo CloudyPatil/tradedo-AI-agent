@@ -177,6 +177,122 @@ def init_db():
         VALUES (1, 100000, 100000, date('now'))
     """)
 
+    # ═══════════════════════════════════════════════════════════
+    #   MANUAL TRADING TABLES (NEW)
+    # ═══════════════════════════════════════════════════════════
+    
+    # Manual account state
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS manual_state (
+            id                  INTEGER PRIMARY KEY,
+            capital             REAL DEFAULT 100000,
+            starting_capital    REAL DEFAULT 100000,
+            current_exposure    REAL DEFAULT 0,
+            open_positions      INTEGER DEFAULT 0,
+            total_realized_pnl  REAL DEFAULT 0,
+            total_unrealized_pnl REAL DEFAULT 0,
+            trades_today        INTEGER DEFAULT 0,
+            wins_today          INTEGER DEFAULT 0,
+            losses_today        INTEGER DEFAULT 0,
+            pnl_today           REAL DEFAULT 0,
+            last_reset          DATE,
+            updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Initialize manual state
+    cursor.execute("""
+        INSERT OR IGNORE INTO manual_state (id, capital, starting_capital, last_reset)
+        VALUES (1, 100000, 100000, date('now'))
+    """)
+    
+    # Manual orders (order book - includes pending, filled, cancelled)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS manual_orders (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol              TEXT NOT NULL,
+            order_type          TEXT NOT NULL,      -- MARKET, LIMIT, SL, SL_MARKET
+            side                TEXT NOT NULL,      -- BUY, SELL
+            product_type        TEXT DEFAULT 'INTRADAY',  -- INTRADAY, DELIVERY
+            
+            -- Order details
+            quantity            INTEGER NOT NULL,
+            price               REAL,               -- Limit price
+            trigger_price       REAL,               -- SL trigger price
+            
+            -- Filled details
+            filled_quantity     INTEGER DEFAULT 0,
+            avg_fill_price      REAL,
+            
+            -- Status
+            status              TEXT DEFAULT 'PENDING',   -- PENDING, FILLED, PARTIAL, CANCELLED, REJECTED
+            reason              TEXT,               -- Cancellation/rejection reason
+            
+            -- Optional bracket order details
+            is_bracket          BOOLEAN DEFAULT 0,
+            stop_loss           REAL,
+            target              REAL,
+            
+            -- Times
+            created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+            filled_at           DATETIME,
+            cancelled_at        DATETIME,
+            
+            -- Notes
+            notes               TEXT
+        )
+    """)
+    
+    # Manual trades (executed positions)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS manual_trades (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol              TEXT NOT NULL,
+            direction           TEXT NOT NULL,      -- LONG, SHORT
+            sector              TEXT,
+            
+            -- Order reference
+            entry_order_id      INTEGER,
+            exit_order_id       INTEGER,
+            
+            -- Prices
+            entry_price         REAL NOT NULL,
+            current_price       REAL,
+            exit_price          REAL,
+            stop_loss           REAL,
+            target              REAL,
+            
+            -- Position
+            quantity            INTEGER NOT NULL,
+            investment          REAL NOT NULL,
+            
+            -- P&L
+            unrealized_pnl      REAL DEFAULT 0,
+            realized_pnl        REAL,
+            pnl_pct             REAL,
+            
+            -- Status
+            status              TEXT DEFAULT 'OPEN',  -- OPEN, CLOSED, PARTIAL
+            
+            -- Tracking
+            highest_price       REAL,
+            lowest_price        REAL,
+            
+            -- Times
+            entry_time          DATETIME DEFAULT CURRENT_TIMESTAMP,
+            exit_time           DATETIME,
+            hold_duration_mins  INTEGER,
+            
+            -- Meta
+            exit_reason         TEXT,
+            notes               TEXT
+        )
+    """)
+    
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_manual_orders_status ON manual_orders(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_manual_trades_status ON manual_trades(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_manual_trades_symbol ON manual_trades(symbol)")
+    
     # Insert default watchlist
     default_stocks = [
         "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS",
@@ -670,6 +786,248 @@ def clear_todays_scans():
     conn.commit()
     conn.close()
 
+
+
+# ═══════════════════════════════════════════════════════════════
+#   MANUAL ACCOUNT FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
+
+def get_manual_state() -> dict:
+    """Get manual account state."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM manual_state WHERE id=1").fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def update_manual_state(**kwargs):
+    """Update manual state."""
+    if not kwargs:
+        return
+    conn = get_connection()
+    updates = ", ".join(f"{k}=?" for k in kwargs.keys())
+    values = list(kwargs.values())
+    conn.execute(
+        f"UPDATE manual_state SET {updates}, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        values
+    )
+    conn.commit()
+    conn.close()
+
+
+def reset_manual_daily_state():
+    """Reset daily counters."""
+    conn = get_connection()
+    conn.execute("""
+        UPDATE manual_state 
+        SET trades_today=0, wins_today=0, losses_today=0, pnl_today=0,
+            last_reset=date('now'), updated_at=CURRENT_TIMESTAMP
+        WHERE id=1
+    """)
+    conn.commit()
+    conn.close()
+
+
+# ─── Manual Orders ────────────────────────────────────────────
+
+def create_manual_order(order_data: dict) -> int:
+    """Create new manual order."""
+    conn = get_connection()
+    cursor = conn.execute("""
+        INSERT INTO manual_orders (
+            symbol, order_type, side, product_type,
+            quantity, price, trigger_price,
+            is_bracket, stop_loss, target, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        order_data.get("symbol"),
+        order_data.get("order_type"),
+        order_data.get("side"),
+        order_data.get("product_type", "INTRADAY"),
+        order_data.get("quantity"),
+        order_data.get("price"),
+        order_data.get("trigger_price"),
+        order_data.get("is_bracket", False),
+        order_data.get("stop_loss"),
+        order_data.get("target"),
+        order_data.get("notes", ""),
+    ))
+    order_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return order_id
+
+
+def get_manual_orders(status: str = None, limit: int = 100) -> list:
+    """Get manual orders."""
+    conn = get_connection()
+    if status:
+        rows = conn.execute("""
+            SELECT * FROM manual_orders 
+            WHERE status = ? 
+            ORDER BY created_at DESC 
+            LIMIT ?
+        """, (status, limit)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT * FROM manual_orders 
+            ORDER BY created_at DESC 
+            LIMIT ?
+        """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_manual_order(order_id: int) -> dict:
+    """Get specific order."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM manual_orders WHERE id = ?",
+        (order_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_manual_order(order_id: int, **kwargs):
+    """Update order fields."""
+    if not kwargs:
+        return
+    conn = get_connection()
+    updates = ", ".join(f"{k}=?" for k in kwargs.keys())
+    values = list(kwargs.values()) + [order_id]
+    conn.execute(
+        f"UPDATE manual_orders SET {updates} WHERE id=?",
+        values
+    )
+    conn.commit()
+    conn.close()
+
+
+def cancel_manual_order(order_id: int, reason: str = "Manual cancellation"):
+    """Cancel pending order."""
+    update_manual_order(
+        order_id,
+        status="CANCELLED",
+        reason=reason,
+        cancelled_at=datetime.now().isoformat(),
+    )
+
+
+# ─── Manual Trades ────────────────────────────────────────────
+
+def create_manual_trade(trade_data: dict) -> int:
+    """Create manual trade."""
+    conn = get_connection()
+    cursor = conn.execute("""
+        INSERT INTO manual_trades (
+            symbol, direction, sector, entry_order_id,
+            entry_price, current_price, stop_loss, target,
+            quantity, investment, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        trade_data.get("symbol"),
+        trade_data.get("direction"),
+        trade_data.get("sector"),
+        trade_data.get("entry_order_id"),
+        trade_data.get("entry_price"),
+        trade_data.get("entry_price"),
+        trade_data.get("stop_loss"),
+        trade_data.get("target"),
+        trade_data.get("quantity"),
+        trade_data.get("investment"),
+        trade_data.get("notes", ""),
+    ))
+    trade_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return trade_id
+
+
+def get_manual_trades(status: str = None, limit: int = 100) -> list:
+    """Get manual trades."""
+    conn = get_connection()
+    if status:
+        rows = conn.execute("""
+            SELECT * FROM manual_trades 
+            WHERE status = ? 
+            ORDER BY entry_time DESC 
+            LIMIT ?
+        """, (status, limit)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT * FROM manual_trades 
+            ORDER BY entry_time DESC 
+            LIMIT ?
+        """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_manual_trade(trade_id: int) -> dict:
+    """Get specific trade."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM manual_trades WHERE id = ?",
+        (trade_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_manual_trade(trade_id: int, **kwargs):
+    """Update trade fields."""
+    if not kwargs:
+        return
+    conn = get_connection()
+    updates = ", ".join(f"{k}=?" for k in kwargs.keys())
+    values = list(kwargs.values()) + [trade_id]
+    conn.execute(
+        f"UPDATE manual_trades SET {updates} WHERE id=?",
+        values
+    )
+    conn.commit()
+    conn.close()
+
+
+def close_manual_trade(trade_id: int, exit_price: float, reason: str = "MANUAL"):
+    """Close a manual trade."""
+    trade = get_manual_trade(trade_id)
+    if not trade:
+        return
+    
+    is_long = trade["direction"] == "LONG"
+    entry = trade["entry_price"]
+    qty = trade["quantity"]
+    
+    # Calculate P&L
+    if is_long:
+        pnl = round((exit_price - entry) * qty, 2)
+    else:
+        pnl = round((entry - exit_price) * qty, 2)
+    
+    pnl_pct = round((pnl / trade["investment"]) * 100, 2) if trade["investment"] else 0
+    
+    # Calculate hold duration
+    entry_time = datetime.fromisoformat(trade["entry_time"].replace("Z", "+00:00"))
+    if entry_time.tzinfo:
+        entry_time = entry_time.replace(tzinfo=None)
+    
+    exit_time = datetime.now()
+    hold_mins = int((exit_time - entry_time).total_seconds() / 60)
+    
+    update_manual_trade(
+        trade_id,
+        exit_price=exit_price,
+        exit_time=exit_time.isoformat(),
+        exit_reason=reason,
+        status="CLOSED",
+        realized_pnl=pnl,
+        pnl_pct=pnl_pct,
+        hold_duration_mins=hold_mins,
+    )
+    
+    return pnl
 
 # ─── Init on import ───────────────────────────────────────────
 if __name__ == "__main__":

@@ -1253,3 +1253,120 @@ async def universe_info():
     """Get universe statistics."""
     from agent.universe import get_universe_stats
     return get_universe_stats()
+
+
+# ═══════════════════════════════════════════════════════════════
+#   Manual Trading Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/manual/summary")
+async def manual_account_summary():
+    """Get manual account summary."""
+    from agent.manual_executor import get_manual_account_summary
+    return get_manual_account_summary()
+
+
+@router.post("/manual/order/place")
+async def place_manual_order_endpoint(order: dict):
+    """Place a manual order."""
+    from agent.manual_executor import place_manual_order
+    return place_manual_order(order)
+
+
+@router.post("/manual/order/{order_id}/cancel")
+async def cancel_manual_order_endpoint(order_id: int, reason: str = "Manual cancellation"):
+    """Cancel a pending order."""
+    from database.db import cancel_manual_order, get_manual_order
+    order = get_manual_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["status"] != "PENDING":
+        raise HTTPException(status_code=400, detail=f"Order is {order['status']}, cannot cancel")
+    
+    cancel_manual_order(order_id, reason)
+    return {"success": True, "message": "Order cancelled"}
+
+
+@router.get("/manual/orders")
+async def get_manual_orders_endpoint(
+    status: str = Query(default="all", regex="^(all|PENDING|FILLED|CANCELLED|REJECTED)$"),
+    limit: int = Query(default=100, le=500)
+):
+    """Get manual orders."""
+    from database.db import get_manual_orders
+    if status == "all":
+        return {"orders": get_manual_orders(limit=limit)}
+    return {"orders": get_manual_orders(status=status, limit=limit)}
+
+
+@router.get("/manual/trades")
+async def get_manual_trades_endpoint(
+    status: str = Query(default="all", regex="^(all|OPEN|CLOSED)$"),
+    limit: int = Query(default=100, le=500)
+):
+    """Get manual trades."""
+    from database.db import get_manual_trades
+    if status == "all":
+        return {"trades": get_manual_trades(limit=limit)}
+    return {"trades": get_manual_trades(status=status, limit=limit)}
+
+
+@router.post("/manual/positions/update")
+async def update_positions_endpoint():
+    """Force update all open position prices."""
+    from agent.manual_executor import update_position_prices
+    return update_position_prices()
+
+
+@router.post("/manual/pending/check")
+async def check_pending_endpoint():
+    """Check pending orders for execution."""
+    from agent.manual_executor import check_pending_orders
+    return check_pending_orders()
+
+
+@router.post("/manual/close-position/{trade_id}")
+async def close_manual_position(trade_id: int):
+    """Manually close a specific position at market price."""
+    from database.db import get_manual_trade, close_manual_trade, update_manual_state, get_manual_state
+    from data_pipeline.price_provider import get_price_provider
+    
+    trade = get_manual_trade(trade_id)
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    if trade["status"] != "OPEN":
+        raise HTTPException(status_code=400, detail=f"Trade is {trade['status']}")
+    
+    provider = get_price_provider()
+    price_result = provider.get_ltp(trade["symbol"])
+    if not price_result:
+        raise HTTPException(status_code=500, detail="Could not fetch price")
+    
+    exit_price = price_result["last_price"]
+    pnl = close_manual_trade(trade_id, exit_price, "MANUAL_CLOSE")
+    
+    # Update capital
+    state = get_manual_state()
+    update_manual_state(
+        capital=state["capital"] + pnl,
+        current_exposure=state["current_exposure"] - trade["investment"],
+        open_positions=max(0, state["open_positions"] - 1),
+        total_realized_pnl=state["total_realized_pnl"] + pnl,
+        pnl_today=state["pnl_today"] + pnl,
+        wins_today=state["wins_today"] + (1 if pnl > 0 else 0),
+        losses_today=state["losses_today"] + (1 if pnl < 0 else 0),
+    )
+    
+    return {
+        "success": True,
+        "trade_id": trade_id,
+        "exit_price": exit_price,
+        "pnl": pnl,
+    }
+
+
+@router.post("/manual/reset-capital")
+async def reset_manual_capital_endpoint(new_capital: float = Query(default=100000)):
+    """Reset manual account capital."""
+    from agent.manual_executor import reset_manual_capital
+    return reset_manual_capital(new_capital)

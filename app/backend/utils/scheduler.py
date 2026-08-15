@@ -108,6 +108,18 @@ async def youtube_sync_job():
         logger.error(f"YouTube sync failed: {e}", exc_info=True)
 
 
+async def manual_position_update_job():
+    """Update manual position prices every minute."""
+    from agent.manual_executor import update_position_prices, check_pending_orders
+    try:
+        # Update position prices
+        update_position_prices()
+        # Check pending orders
+        check_pending_orders()
+    except Exception as e:
+        logger.error(f"Manual position update failed: {e}")
+
+
 # ═══════════════════════════════════════════════════════════════
 #   SETUP ALL JOBS
 # ═══════════════════════════════════════════════════════════════
@@ -232,6 +244,18 @@ def setup_scheduler():
     ),
     id="youtube_sync",
     name="YouTube Channel Sync",
+    replace_existing=True,
+    )
+
+    scheduler.add_job(
+    manual_position_update_job,
+    CronTrigger(
+        hour="9-15", minute="*",
+        day_of_week="mon-fri",
+        timezone="Asia/Kolkata"
+    ),
+    id="manual_positions_update",
+    name="Manual Positions & Orders Update",
     replace_existing=True,
     )
 

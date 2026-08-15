@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useStockPrediction } from "@/lib/hooks/use-stock";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatPercent, cn } from "@/lib/utils";
+import { TradeModal } from "@/components/manual/trade-modal";
 import { useState } from "react";
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
 
 export function StockHeader({ symbol }: Props) {
   const [mode, setMode] = useState<"intraday" | "swing">("intraday");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalSide, setModalSide] = useState<"BUY" | "SELL">("BUY");
   const { data, isLoading, refetch, isFetching } = useStockPrediction(symbol, mode);
 
   const cleanSymbol = symbol.replace(".NS", "");
@@ -64,6 +67,32 @@ export function StockHeader({ symbol }: Props) {
 
         {/* Right: Signal + Controls */}
         <div className="flex items-center gap-4">
+
+          {/* Quick Trade Buttons */}
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              onClick={() => {
+                setModalSide("BUY");
+                setModalOpen(true);
+              }}
+              className="bg-bull hover:bg-bull-dark"
+            >
+              <TrendingUp size={14} className="mr-1" />
+              BUY
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setModalSide("SELL");
+                setModalOpen(true);
+              }}
+              className="bg-bear hover:bg-bear-dark"
+            >
+              <TrendingDown size={14} className="mr-1" />
+              SELL
+            </Button>
+          </div>
           
           {/* Signal Badge */}
           {!isLoading && (
@@ -122,6 +151,14 @@ export function StockHeader({ symbol }: Props) {
           </Button>
         </div>
       </div>
+
+      {/* At the end of the return statement (BEFORE closing div): */}
+      <TradeModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        symbol={symbol}
+        defaultSide={modalSide}
+      />
     </div>
   );
 }

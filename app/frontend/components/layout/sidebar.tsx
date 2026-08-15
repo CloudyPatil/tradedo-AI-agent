@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, TrendingUp, Sparkles, Wallet,
   Bot, Target, Search, BarChart3, FileText, Settings,
-  Shield, Scan,
+  Shield, Scan, User
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,7 @@ const navItems = [
   { href: "/markets",    label: "Markets",          icon: TrendingUp },
   { href: "/screener",   label: "Screener",         icon: Scan },
   { href: "/signals",    label: "AI Signals",       icon: Sparkles },
+  { href: "/manual",    label: "Manual Trading",   icon: User },
   { href: "/portfolio",  label: "Portfolio",        icon: Wallet },
   { href: "/agent",      label: "Autonomous Agent", icon: Bot },
   { href: "/trades",     label: "Trades",           icon: Target },

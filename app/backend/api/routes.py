@@ -1370,3 +1370,55 @@ async def reset_manual_capital_endpoint(new_capital: float = Query(default=10000
     """Reset manual account capital."""
     from agent.manual_executor import reset_manual_capital
     return reset_manual_capital(new_capital)
+
+# ═══════════════════════════════════════════════════════════════
+#   Charges & Leverage Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@router.post("/charges/calculate")
+async def calculate_charges_endpoint(order: dict):
+    """Calculate brokerage and charges for a trade."""
+    from agent.charges_calculator import calculate_charges
+    return calculate_charges(**order)
+
+
+@router.post("/charges/roundtrip")
+async def calculate_roundtrip_endpoint(order: dict):
+    """Calculate full round-trip P&L with charges."""
+    from agent.charges_calculator import calculate_roundtrip_pnl
+    return calculate_roundtrip_pnl(**order)
+
+
+@router.get("/charges/rates")
+async def get_brokerage_rates_endpoint():
+    """Get current brokerage rates."""
+    from agent.charges_calculator import get_brokerage_rates
+    return get_brokerage_rates()
+
+
+@router.post("/leverage/margin")
+async def calculate_margin_endpoint(order: dict):
+    """Calculate margin required for a trade."""
+    from agent.leverage_manager import calculate_margin
+    return calculate_margin(**order)
+
+
+@router.post("/leverage/buying-power")
+async def calculate_buying_power_endpoint(data: dict):
+    """Calculate max buying power."""
+    from agent.leverage_manager import calculate_buying_power
+    return calculate_buying_power(**data)
+
+
+@router.get("/leverage/{symbol}")
+async def get_leverage_endpoint(
+    symbol: str, 
+    product_type: str = Query(default="INTRADAY")
+):
+    """Get leverage for a stock."""
+    from agent.leverage_manager import get_leverage
+    return {
+        "symbol": symbol,
+        "product_type": product_type,
+        "leverage": get_leverage(symbol, product_type),
+    }

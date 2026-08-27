@@ -23,6 +23,8 @@ from database.db import (
 )
 from data_pipeline.price_provider import get_price_provider
 from agent.sectors import get_sector
+from agent.charges_calculator import ChargesCalculator
+from agent.leverage_manager import LeverageManager
 
 logger = logging.getLogger("tradedo.manual")
 
@@ -82,33 +84,27 @@ def validate_order(order_data: Dict) -> Dict:
 
 def place_manual_order(order_data: Dict) -> Dict:
     """
-    Place a manual order.
-    Returns result with order_id or error.
+    Place a manual order with leverage and charges.
     """
     logger.info(f"📝 Manual order: {order_data.get('side')} {order_data.get('quantity')} {order_data.get('symbol')}")
     
     # 1. Validate
     validation = validate_order(order_data)
     if not validation["valid"]:
-        return {
-            "success": False,
-            "errors": validation["errors"],
-        }
+        return {"success": False, "errors": validation["errors"]}
     
     # 2. Get current price
     provider = get_price_provider()
     price_result = provider.get_ltp(order_data["symbol"])
     
     if not price_result:
-        return {
-            "success": False,
-            "errors": ["Could not fetch current price"],
-        }
+        return {"success": False, "errors": ["Could not fetch current price"]}
     
     current_price = price_result["last_price"]
     
     # 3. Determine execution price
     order_type = order_data["order_type"]
+    product_type = order_data.get("product_type", "INTRADAY").upper()
     execution_price = None
     execute_immediately = False
     
@@ -117,35 +113,56 @@ def place_manual_order(order_data: Dict) -> Dict:
         execute_immediately = True
     elif order_type == "LIMIT":
         limit_price = order_data["price"]
-        # Check if limit already meets market
         if order_data["side"] == "BUY" and current_price <= limit_price:
             execution_price = current_price
             execute_immediately = True
         elif order_data["side"] == "SELL" and current_price >= limit_price:
             execution_price = current_price
             execute_immediately = True
-        # else: order remains pending
     
-    # 4. Check capital for BUY orders
+    # 4. Check margin required (NOT full turnover!)
     if order_data["side"] == "BUY" and execute_immediately:
-        required_capital = execution_price * order_data["quantity"]
         state = get_manual_state()
         available = state["capital"] - state["current_exposure"]
         
-        if required_capital > available:
+        # Calculate margin required (with leverage)
+        margin_info = LeverageManager.calculate_margin_required(
+            symbol=order_data["symbol"],
+            quantity=order_data["quantity"],
+            price=execution_price,
+            product_type=product_type,
+        )
+        
+        margin_required = margin_info["margin_required"]
+        
+        # Also add estimated charges to required capital
+        charges = ChargesCalculator.calculate_charges(
+            symbol=order_data["symbol"],
+            quantity=order_data["quantity"],
+            price=execution_price,
+            side="BUY",
+            product_type=product_type,
+        )
+        
+        total_required = margin_required + charges["total_charges"]
+        
+        if total_required > available:
             return {
                 "success": False,
                 "errors": [
-                    f"Insufficient capital. Required: ₹{required_capital:.2f}, "
+                    f"Insufficient capital. Required: ₹{total_required:.2f} "
+                    f"(Margin: ₹{margin_required:.2f} + Charges: ₹{charges['total_charges']:.2f}), "
                     f"Available: ₹{available:.2f}"
                 ],
+                "margin_info": margin_info,
+                "charges_info": charges,
             }
     
     # 5. Create order
     order_id = create_manual_order(order_data)
     logger.info(f"  → Order created: #{order_id}")
     
-    # 6. Execute if market order or limit met
+    # 6. Execute if applicable
     if execute_immediately:
         return execute_order(order_id, execution_price)
     
@@ -158,13 +175,24 @@ def place_manual_order(order_data: Dict) -> Dict:
 
 
 def execute_order(order_id: int, execution_price: float) -> Dict:
-    """Execute an order (create trade)."""
+    """Execute an order with charges."""
     order = get_manual_order(order_id)
     if not order:
         return {"success": False, "errors": ["Order not found"]}
     
     if order["status"] != "PENDING":
         return {"success": False, "errors": [f"Order already {order['status']}"]}
+    
+    product_type = order.get("product_type", "INTRADAY").upper()
+    
+    # Calculate charges for this leg
+    charges = ChargesCalculator.calculate_charges(
+        symbol=order["symbol"],
+        quantity=order["quantity"],
+        price=execution_price,
+        side=order["side"],
+        product_type=product_type,
+    )
     
     # Update order as filled
     update_manual_order(
@@ -175,9 +203,18 @@ def execute_order(order_id: int, execution_price: float) -> Dict:
         filled_at=datetime.now().isoformat(),
     )
     
-    # For BUY: create new trade
+    # For BUY: create trade with margin
     if order["side"] == "BUY":
-        investment = execution_price * order["quantity"]
+        margin_info = LeverageManager.calculate_margin_required(
+            symbol=order["symbol"],
+            quantity=order["quantity"],
+            price=execution_price,
+            product_type=product_type,
+        )
+        
+        # Investment = Margin (what actually locks capital) + Charges
+        investment = margin_info["margin_required"] + charges["total_charges"]
+        turnover = margin_info["turnover"]
         
         trade_id = create_manual_trade({
             "symbol": order["symbol"],
@@ -188,19 +225,24 @@ def execute_order(order_id: int, execution_price: float) -> Dict:
             "stop_loss": order.get("stop_loss"),
             "target": order.get("target"),
             "quantity": order["quantity"],
-            "investment": investment,
+            "investment": investment,  # Actual capital deployed (margin + charges)
             "notes": order.get("notes"),
         })
         
-        # Update capital
+        # Update state
         state = get_manual_state()
         update_manual_state(
-            current_exposure=state["current_exposure"] + investment,
+            capital=state["capital"] - charges["total_charges"],  # Deduct charges from capital
+            current_exposure=state["current_exposure"] + margin_info["margin_required"],
             open_positions=state["open_positions"] + 1,
             trades_today=state["trades_today"] + 1,
         )
         
-        logger.info(f"  ✅ BUY executed: {order['quantity']} shares @ ₹{execution_price}")
+        logger.info(
+            f"  ✅ BUY: {order['quantity']} shares @ ₹{execution_price} "
+            f"(Turnover: ₹{turnover:,.2f}, Margin: ₹{margin_info['margin_required']:,.2f}, "
+            f"Charges: ₹{charges['total_charges']:.2f})"
+        )
         
         return {
             "success": True,
@@ -208,64 +250,103 @@ def execute_order(order_id: int, execution_price: float) -> Dict:
             "trade_id": trade_id,
             "status": "FILLED",
             "execution_price": execution_price,
-            "investment": investment,
-            "message": f"BUY order filled at ₹{execution_price}",
+            "turnover": turnover,
+            "margin_used": margin_info["margin_required"],
+            "leverage": margin_info["leverage"],
+            "charges": charges,
+            "message": (
+                f"BUY filled at ₹{execution_price}. "
+                f"Margin: ₹{margin_info['margin_required']:.2f} "
+                f"({margin_info['leverage']}x leverage), "
+                f"Charges: ₹{charges['total_charges']:.2f}"
+            ),
         }
     
-    # For SELL: close existing trade(s) FIFO
+    # For SELL: close positions
     else:
-        return close_position_by_symbol(order["symbol"], order["quantity"], execution_price, order_id)
+        return close_position_by_symbol(
+            order["symbol"], order["quantity"], execution_price, order_id, charges
+        )
 
 
-def close_position_by_symbol(symbol: str, quantity: int, exit_price: float, order_id: int) -> Dict:
-    """Close open positions FIFO for a symbol."""
-    # Get open trades for this symbol
+def close_position_by_symbol(
+    symbol: str, quantity: int, exit_price: float, order_id: int, exit_charges: Dict
+) -> Dict:
+    """Close open positions FIFO with charges."""
     open_trades = [t for t in get_manual_trades("OPEN") if t["symbol"] == symbol]
     
     if not open_trades:
-        return {
-            "success": False,
-            "errors": [f"No open positions for {symbol}"],
-        }
+        return {"success": False, "errors": [f"No open positions for {symbol}"]}
     
-    # Sort by entry_time (FIFO)
     open_trades.sort(key=lambda t: t["entry_time"])
     
     remaining_qty = quantity
     closed_trades = []
-    total_pnl = 0
-    total_released_capital = 0
+    total_gross_pnl = 0
+    total_net_pnl = 0
+    total_released_margin = 0
     
     for trade in open_trades:
         if remaining_qty <= 0:
             break
         
+        product_type = "INTRADAY"  # Default
+        
+        # Get exit charges proportion
+        qty_to_close = min(remaining_qty, trade["quantity"])
+        
+        # Proportional charges for partial close
+        exit_charge_portion = (exit_charges["total_charges"] * qty_to_close) / quantity
+        
         if remaining_qty >= trade["quantity"]:
             # Close entire trade
-            pnl = close_manual_trade(trade["id"], exit_price, "MANUAL_SELL")
-            total_pnl += pnl
-            total_released_capital += trade["investment"]
+            entry_price = trade["entry_price"]
+            
+            # Calculate P&L
+            gross_pnl = round((exit_price - entry_price) * trade["quantity"], 2)
+            
+            # Get entry charges (from investment)
+            # investment already includes entry charges
+            # entry_margin = investment - entry_charges
+            
+            # Calculate margin returned
+            margin_info = LeverageManager.calculate_margin_required(
+                symbol=trade["symbol"],
+                quantity=trade["quantity"],
+                price=entry_price,
+                product_type=product_type,
+            )
+            margin_returned = margin_info["margin_required"]
+            
+            net_pnl = round(gross_pnl - exit_charge_portion, 2)
+            
+            total_gross_pnl += gross_pnl
+            total_net_pnl += net_pnl
+            total_released_margin += margin_returned
+            
+            close_manual_trade(trade["id"], exit_price, "MANUAL_SELL")
+            
+            # Update trade with net P&L
+            update_manual_trade(trade["id"], realized_pnl=net_pnl)
+            
             remaining_qty -= trade["quantity"]
             closed_trades.append(trade["id"])
         else:
-            # Partial close - split the trade
+            # Partial close (simplified)
             partial_qty = remaining_qty
-            
-            is_long = trade["direction"] == "LONG"
             entry = trade["entry_price"]
+            gross_pnl = round((exit_price - entry) * partial_qty, 2)
+            net_pnl = round(gross_pnl - exit_charge_portion, 2)
             
-            if is_long:
-                partial_pnl = round((exit_price - entry) * partial_qty, 2)
-            else:
-                partial_pnl = round((entry - exit_price) * partial_qty, 2)
+            total_gross_pnl += gross_pnl
+            total_net_pnl += net_pnl
             
-            total_pnl += partial_pnl
-            
-            # Reduce trade quantity
+            # Reduce trade
             new_qty = trade["quantity"] - partial_qty
-            new_investment = new_qty * entry
+            proportion = new_qty / trade["quantity"]
+            new_investment = trade["investment"] * proportion
             released = trade["investment"] - new_investment
-            total_released_capital += released
+            total_released_margin += released
             
             update_manual_trade(
                 trade["id"],
@@ -275,25 +356,29 @@ def close_position_by_symbol(symbol: str, quantity: int, exit_price: float, orde
             
             remaining_qty = 0
     
-    # Update capital
+    # Update state
     state = get_manual_state()
     positions_closed = len(closed_trades)
     
-    is_profit = total_pnl > 0
+    is_profit = total_net_pnl > 0
     wins_delta = 1 if is_profit else 0
-    losses_delta = 1 if total_pnl < 0 else 0
+    losses_delta = 1 if total_net_pnl < 0 else 0
     
     update_manual_state(
-        capital=state["capital"] + total_pnl,
-        current_exposure=state["current_exposure"] - total_released_capital,
+        capital=state["capital"] + total_net_pnl,
+        current_exposure=state["current_exposure"] - total_released_margin,
         open_positions=max(0, state["open_positions"] - positions_closed),
-        total_realized_pnl=state["total_realized_pnl"] + total_pnl,
-        pnl_today=state["pnl_today"] + total_pnl,
+        total_realized_pnl=state["total_realized_pnl"] + total_net_pnl,
+        pnl_today=state["pnl_today"] + total_net_pnl,
         wins_today=state["wins_today"] + wins_delta,
         losses_today=state["losses_today"] + losses_delta,
     )
     
-    logger.info(f"  ✅ SELL executed: {quantity} shares @ ₹{exit_price}, P&L: ₹{total_pnl}")
+    logger.info(
+        f"  ✅ SELL: {quantity} @ ₹{exit_price} | "
+        f"Gross P&L: ₹{total_gross_pnl}, Charges: ₹{exit_charges['total_charges']:.2f}, "
+        f"Net P&L: ₹{total_net_pnl}"
+    )
     
     return {
         "success": True,
@@ -301,8 +386,14 @@ def close_position_by_symbol(symbol: str, quantity: int, exit_price: float, orde
         "closed_trades": closed_trades,
         "status": "FILLED",
         "execution_price": exit_price,
-        "total_pnl": total_pnl,
-        "message": f"SELL order filled at ₹{exit_price}, P&L: ₹{total_pnl}",
+        "gross_pnl": total_gross_pnl,
+        "charges": exit_charges,
+        "net_pnl": total_net_pnl,
+        "message": (
+            f"SELL filled. Gross P&L: ₹{total_gross_pnl:.2f}, "
+            f"Charges: ₹{exit_charges['total_charges']:.2f}, "
+            f"Net P&L: ₹{total_net_pnl:.2f}"
+        ),
     }
 
 

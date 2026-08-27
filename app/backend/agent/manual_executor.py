@@ -579,6 +579,103 @@ def reset_manual_capital(new_capital: float = 100000) -> Dict:
     logger.info(f"💰 Manual capital reset to ₹{new_capital:,}")
     return {"success": True, "capital": new_capital}
 
+# ADD to manual_executor.py
+
+def force_close_intraday_positions() -> Dict:
+    """
+    Force close all INTRADAY positions at 3:15 PM.
+    Called by scheduler.
+    """
+    from datetime import datetime, time as dt_time
+    
+    now = datetime.now().time()
+    close_time = dt_time(15, 15)   # 3:15 PM
+    
+    if now < close_time:
+        return {"status": "not_time", "message": "Not yet 3:15 PM"}
+    
+    # Get all open trades
+    open_trades = get_manual_trades("OPEN")
+    
+    # Filter to only INTRADAY (need to check order for product_type)
+    intraday_trades = []
+    for trade in open_trades:
+        # Get order to check product type
+        if trade.get("entry_order_id"):
+            order = get_manual_order(trade["entry_order_id"])
+            if order and order.get("product_type", "INTRADAY").upper() == "INTRADAY":
+                intraday_trades.append(trade)
+    
+    if not intraday_trades:
+        return {"status": "no_intraday", "closed": 0}
+    
+    logger.info(f"⏰ EOD: Force closing {len(intraday_trades)} intraday positions")
+    
+    provider = get_price_provider()
+    closed = []
+    total_pnl = 0
+    
+    for trade in intraday_trades:
+        try:
+            # Get current price
+            price_result = provider.get_ltp(trade["symbol"])
+            if not price_result:
+                continue
+            
+            exit_price = price_result["last_price"]
+            
+            # Calculate exit charges
+            from agent.charges_calculator import ChargesCalculator
+            exit_charges = ChargesCalculator.calculate_charges(
+                symbol=trade["symbol"],
+                quantity=trade["quantity"],
+                price=exit_price,
+                side="SELL",
+                product_type="INTRADAY",
+            )
+            
+            # Close trade
+            gross_pnl = (exit_price - trade["entry_price"]) * trade["quantity"]
+            net_pnl = gross_pnl - exit_charges["total_charges"]
+            
+            close_manual_trade(trade["id"], exit_price, "EOD_AUTO_SQUARE_OFF")
+            update_manual_trade(trade["id"], realized_pnl=round(net_pnl, 2))
+            
+            # Update state
+            state = get_manual_state()
+            update_manual_state(
+                capital=state["capital"] + net_pnl,
+                current_exposure=state["current_exposure"] - trade["investment"],
+                open_positions=max(0, state["open_positions"] - 1),
+                total_realized_pnl=state["total_realized_pnl"] + net_pnl,
+                pnl_today=state["pnl_today"] + net_pnl,
+                wins_today=state["wins_today"] + (1 if net_pnl > 0 else 0),
+                losses_today=state["losses_today"] + (1 if net_pnl < 0 else 0),
+            )
+            
+            total_pnl += net_pnl
+            closed.append({
+                "trade_id": trade["id"],
+                "symbol": trade["symbol"],
+                "pnl": round(net_pnl, 2),
+            })
+            
+            logger.info(
+                f"  ✅ Force closed: {trade['symbol']} | "
+                f"Entry: ₹{trade['entry_price']}, Exit: ₹{exit_price}, "
+                f"Net P&L: ₹{net_pnl:.2f}"
+            )
+        
+        except Exception as e:
+            logger.error(f"Failed to close {trade['symbol']}: {e}")
+    
+    return {
+        "status": "completed",
+        "closed": len(closed),
+        "total_pnl": round(total_pnl, 2),
+        "positions": closed,
+    }
+
 
 # Quick test
 if __name__ == "__main__":

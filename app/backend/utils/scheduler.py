@@ -120,6 +120,20 @@ async def manual_position_update_job():
         logger.error(f"Manual position update failed: {e}")
 
 
+async def manual_eod_squareoff():
+    """Auto square-off intraday positions at 3:15 PM."""
+    from agent.manual_executor import force_close_intraday_positions
+    try:
+        result = force_close_intraday_positions()
+        if result.get("closed", 0) > 0:
+            logger.warning(
+                f"⏰ EOD: Auto-closed {result['closed']} intraday positions, "
+                f"Total P&L: ₹{result['total_pnl']}"
+            )
+    except Exception as e:
+        logger.error(f"EOD squareoff failed: {e}")
+
+
 # ═══════════════════════════════════════════════════════════════
 #   SETUP ALL JOBS
 # ═══════════════════════════════════════════════════════════════
@@ -258,6 +272,18 @@ def setup_scheduler():
     name="Manual Positions & Orders Update",
     replace_existing=True,
     )
+
+    scheduler.add_job(
+    manual_eod_squareoff,
+    CronTrigger(
+        hour=15, minute=15,   # 3:15 PM
+        day_of_week="mon-fri",
+        timezone="Asia/Kolkata"
+    ),
+    id="manual_eod_squareoff",
+    name="Manual EOD Intraday Square-off",
+    replace_existing=True,
+   )
 
     
     logger.info("✅ Scheduler configured with all agent jobs")

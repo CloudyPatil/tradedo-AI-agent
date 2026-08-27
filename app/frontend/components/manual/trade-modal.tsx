@@ -202,62 +202,66 @@ export function TradeModal({ open, onOpenChange, symbol, defaultSide = "BUY" }: 
 
           <TabsContent value={side} className="space-y-4 mt-4">
             
-            {/* Product Type Selection */}
+            {/* Product Type - Enhanced */}
             <div>
-              <Label className="text-xs uppercase tracking-wider font-bold">Product Type</Label>
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <button
-                  type="button"
-                  onClick={() => setProductType("INTRADAY")}
-                  className={cn(
-                    "p-3 rounded-lg border-2 transition-all text-left",
-                    productType === "INTRADAY"
-                      ? "border-brand bg-brand/10"
-                      : "border-border hover:border-muted-foreground/30"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={cn(
-                      "text-xs font-bold",
-                      productType === "INTRADAY" ? "text-brand" : "text-foreground"
-                    )}>
-                      INTRADAY (MIS)
-                    </span>
-                    <span className="text-[10px] px-1.5 py-0.5 bg-brand/20 text-brand rounded font-bold">
-                      5x LEVERAGE
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">
-                    Day trading · Auto square-off at 3:15 PM
-                  </p>
-                </button>
+  <Label className="text-xs uppercase tracking-wider">Product Type</Label>
+  <div className="grid grid-cols-2 gap-2 mt-2">
+    <button
+      onClick={() => setProductType("INTRADAY")}
+      className={cn(
+        "p-3 rounded-lg border-2 transition-all text-left",
+        productType === "INTRADAY"
+          ? "border-brand bg-brand/10"
+          : "border-border hover:border-muted-foreground/30"
+      )}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <span className={cn(
+          "text-xs font-bold",
+          productType === "INTRADAY" ? "text-brand" : "text-foreground"
+        )}>
+          INTRADAY (MIS)
+        </span>
+        <span className="text-[10px] px-1.5 py-0.5 bg-brand/20 text-brand rounded font-bold">
+          5x LEVERAGE
+        </span>
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        Day trading · Auto square-off at 3:15 PM
+      </p>
+      <p className="text-[10px] text-neutral mt-1 font-mono">
+        ⚡ Higher leverage · Same day only
+      </p>
+    </button>
 
-                <button
-                  type="button"
-                  onClick={() => setProductType("DELIVERY")}
-                  className={cn(
-                    "p-3 rounded-lg border-2 transition-all text-left",
-                    productType === "DELIVERY"
-                      ? "border-brand bg-brand/10"
-                      : "border-border hover:border-muted-foreground/30"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={cn(
-                      "text-xs font-bold",
-                      productType === "DELIVERY" ? "text-brand" : "text-foreground"
-                    )}>
-                      DELIVERY (CNC)
-                    </span>
-                    <span className="text-[10px] px-1.5 py-0.5 bg-bull/20 text-bull rounded font-bold">
-                      SWING
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">
-                    Hold days/months · No time limit
-                  </p>
-                </button>
-              </div>
+    <button
+      onClick={() => setProductType("DELIVERY")}
+      className={cn(
+        "p-3 rounded-lg border-2 transition-all text-left",
+        productType === "DELIVERY"
+          ? "border-brand bg-brand/10"
+          : "border-border hover:border-muted-foreground/30"
+      )}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <span className={cn(
+          "text-xs font-bold",
+          productType === "DELIVERY" ? "text-brand" : "text-foreground"
+        )}>
+          DELIVERY (CNC)
+        </span>
+        <span className="text-[10px] px-1.5 py-0.5 bg-bull/20 text-bull rounded font-bold">
+          NO EXPIRY
+        </span>
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        Swing/Long-term · Hold days/months/years
+      </p>
+      <p className="text-[10px] text-bull mt-1 font-mono">
+        📈 Full capital · No time limit
+      </p>
+    </button>
+  </div>
             </div>
 
             {/* Product Type Warnings */}

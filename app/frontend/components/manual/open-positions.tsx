@@ -101,6 +101,8 @@ export function OpenPositions() {
   );
 }
 
+// UPDATE PositionRow function in open-positions.tsx
+
 function PositionRow({ trade, onBuy, onSell, onClose, isClosing }: any) {
   const isLong = trade.direction === "LONG";
   const cleanSymbol = trade.symbol.replace(".NS", "");
@@ -111,17 +113,58 @@ function PositionRow({ trade, onBuy, onSell, onClose, isClosing }: any) {
   const pnlPct = investment > 0 ? (pnl / investment) * 100 : 0;
   const isProfit = pnl >= 0;
 
+  // Fetch product type from order
+  const { data: orderData } = useQuery({
+    queryKey: ["order", trade.entry_order_id],
+    queryFn: () => trade.entry_order_id 
+      ? api.get(`/manual/orders`).then(r => 
+          r.data.orders?.find((o: any) => o.id === trade.entry_order_id)
+        )
+      : null,
+    enabled: !!trade.entry_order_id,
+    staleTime: Infinity,
+  });
+
+  const productType = orderData?.product_type || "INTRADAY";
+  const isIntraday = productType === "INTRADAY";
+
+  // Calculate hold time
+  const entryTime = new Date(trade.entry_time);
+  const now = new Date();
+  const hoursHeld = Math.floor((now.getTime() - entryTime.getTime()) / (1000 * 60 * 60));
+  const daysHeld = Math.floor(hoursHeld / 24);
+  
+  const holdTimeStr = daysHeld > 0 
+    ? `${daysHeld}d ${hoursHeld % 24}h`
+    : hoursHeld > 0 
+      ? `${hoursHeld}h ${Math.floor(((now.getTime() - entryTime.getTime()) / (1000 * 60)) % 60)}m`
+      : `${Math.floor((now.getTime() - entryTime.getTime()) / (1000 * 60))}m`;
+
   return (
     <tr className="border-t border-border hover:bg-accent/30 transition-colors">
       <td className="px-4 py-3">
-        <Link 
-          href={`/stock/${cleanSymbol}`}
-          className="font-mono font-bold text-sm hover:text-brand"
-        >
-          {cleanSymbol}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link 
+            href={`/stock/${cleanSymbol}`}
+            className="font-mono font-bold text-sm hover:text-brand"
+          >
+            {cleanSymbol}
+          </Link>
+          {/* Product Type Badge */}
+          <span className={cn(
+            "text-[9px] px-1.5 py-0.5 rounded font-bold",
+            isIntraday 
+              ? "bg-brand/10 text-brand" 
+              : "bg-bull/10 text-bull"
+          )}>
+            {isIntraday ? "MIS" : "CNC"}
+          </span>
+        </div>
         <p className="text-[10px] text-muted-foreground">
-          {trade.sector}
+          {trade.sector} · {holdTimeStr}
+          {isIntraday && (
+            <span className="ml-1 text-neutral">· EOD 3:15 PM</span>
+          )}
         </p>
       </td>
 

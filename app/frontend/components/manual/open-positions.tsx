@@ -3,7 +3,9 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useManualTrades, useClosePosition } from "@/lib/hooks/use-manual";
+import { api } from "@/lib/api/client";
 import { Briefcase, TrendingUp, TrendingDown, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, cn } from "@/lib/utils";

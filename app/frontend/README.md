@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TRADEDO frontend
 
-## Getting Started
+This is the Next.js dashboard for TRADEDO. It provides screens for the market overview, watchlists, signals, trade plans, portfolio and risk views, reports, and agent controls.
 
-First, run the development server:
+## Requirements
 
-```bash
+- Node.js 20 or newer
+- npm (the committed `package-lock.json` is used for reproducible installs)
+
+## Development
+
+```powershell
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000` after the development server starts.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Quality checks
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Run these before submitting frontend changes:
 
-## Learn More
+```powershell
+npm run lint
+npm run build
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Backend dependency
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The dashboard is designed to work with the FastAPI service in `../backend`. Start that service separately and confirm its health endpoint is reachable before diagnosing missing market or account data in the UI.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Project structure
 
-## Deploy on Vercel
+```text
+app/          # Routes, layout, and global styles
+components/   # Page and reusable UI components
+lib/          # API client, hooks, and shared utilities
+public/       # Static assets
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Safety note
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Dashboard signals and analytics are informational. They are not financial advice and should not be used as the sole basis for trading decisions.

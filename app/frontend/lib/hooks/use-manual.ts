@@ -9,7 +9,7 @@ export function useManualSummary() {
   return useQuery({
     queryKey: ["manual-summary"],
     queryFn: () => api.get("/manual/summary").then(r => r.data),
-    refetchInterval: 10000,
+    refetchInterval: 5000,
   });
 }
 
@@ -27,7 +27,7 @@ export function useManualTrades(status: string = "all") {
   return useQuery({
     queryKey: ["manual-trades", status],
     queryFn: () => api.get("/manual/trades", { params: { status } }).then(r => r.data),
-    refetchInterval: 15000,
+    refetchInterval: status === "OPEN" ? 5000 : 15000,
   });
 }
 

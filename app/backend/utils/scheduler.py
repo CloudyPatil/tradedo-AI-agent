@@ -134,6 +134,16 @@ async def manual_eod_squareoff():
         logger.error(f"EOD squareoff failed: {e}")
 
 
+async def reset_manual_daily_counters():
+    """Reset manual trading's daily metrics at the start of each trading day."""
+    from database.db import reset_manual_daily_state
+    try:
+        reset_manual_daily_state()
+        logger.info("Manual daily counters reset")
+    except Exception as e:
+        logger.error(f"Manual daily reset failed: {e}", exc_info=True)
+
+
 # ═══════════════════════════════════════════════════════════════
 #   SETUP ALL JOBS
 # ═══════════════════════════════════════════════════════════════
@@ -282,6 +292,18 @@ def setup_scheduler():
     ),
     id="manual_eod_squareoff",
     name="Manual EOD Intraday Square-off",
+    replace_existing=True,
+   )
+
+    scheduler.add_job(
+    reset_manual_daily_counters,
+    CronTrigger(
+        hour=0, minute=5,
+        day_of_week="mon-fri",
+        timezone="Asia/Kolkata"
+    ),
+    id="manual_daily_reset",
+    name="Manual Daily Counter Reset",
     replace_existing=True,
    )
 

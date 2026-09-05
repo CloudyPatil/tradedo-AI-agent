@@ -184,6 +184,23 @@ def execute_order(order_id: int, execution_price: float) -> Dict:
         return {"success": False, "errors": [f"Order already {order['status']}"]}
     
     product_type = order.get("product_type", "INTRADAY").upper()
+
+    # Manual trading currently supports long positions only.  Never mark a
+    # sell order filled until there is enough inventory to close it.
+    if order["side"] == "SELL":
+        available_quantity = sum(
+            trade["quantity"]
+            for trade in get_manual_trades("OPEN")
+            if trade["symbol"] == order["symbol"]
+        )
+        if order["quantity"] > available_quantity:
+            return {
+                "success": False,
+                "errors": [
+                    f"Cannot sell {order['quantity']} {order['symbol']}: "
+                    f"only {available_quantity} shares are open."
+                ],
+            }
     
     # Calculate charges for this leg
     charges = ChargesCalculator.calculate_charges(
@@ -226,6 +243,9 @@ def execute_order(order_id: int, execution_price: float) -> Dict:
             "target": order.get("target"),
             "quantity": order["quantity"],
             "investment": investment,  # Actual capital deployed (margin + charges)
+            "product_type": product_type,
+            "margin_used": margin_info["margin_required"],
+            "entry_charges": charges["total_charges"],
             "notes": order.get("notes"),
         })
         
@@ -279,18 +299,20 @@ def close_position_by_symbol(
         return {"success": False, "errors": [f"No open positions for {symbol}"]}
     
     open_trades.sort(key=lambda t: t["entry_time"])
+    _hydrate_legacy_position_metadata(open_trades)
     
     remaining_qty = quantity
     closed_trades = []
     total_gross_pnl = 0
     total_net_pnl = 0
+    total_cash_delta = 0
     total_released_margin = 0
     
     for trade in open_trades:
         if remaining_qty <= 0:
             break
         
-        product_type = "INTRADAY"  # Default
+        product_type = trade.get("product_type", "INTRADAY").upper()
         
         # Get exit charges proportion
         qty_to_close = min(remaining_qty, trade["quantity"])
@@ -310,18 +332,18 @@ def close_position_by_symbol(
             # entry_margin = investment - entry_charges
             
             # Calculate margin returned
-            margin_info = LeverageManager.calculate_margin_required(
-                symbol=trade["symbol"],
-                quantity=trade["quantity"],
-                price=entry_price,
-                product_type=product_type,
-            )
-            margin_returned = margin_info["margin_required"]
+            margin_returned = trade.get("margin_used") or LeverageManager.calculate_margin_required(
+                symbol=trade["symbol"], quantity=trade["quantity"],
+                price=entry_price, product_type=product_type,
+            )["margin_required"]
             
-            net_pnl = round(gross_pnl - exit_charge_portion, 2)
+            entry_charge_portion = trade.get("entry_charges") or 0
+            cash_delta = round(gross_pnl - exit_charge_portion, 2)
+            net_pnl = round(cash_delta - entry_charge_portion, 2)
             
             total_gross_pnl += gross_pnl
             total_net_pnl += net_pnl
+            total_cash_delta += cash_delta
             total_released_margin += margin_returned
             
             close_manual_trade(trade["id"], exit_price, "MANUAL_SELL")
@@ -336,22 +358,27 @@ def close_position_by_symbol(
             partial_qty = remaining_qty
             entry = trade["entry_price"]
             gross_pnl = round((exit_price - entry) * partial_qty, 2)
-            net_pnl = round(gross_pnl - exit_charge_portion, 2)
+            entry_charge_portion = (trade.get("entry_charges") or 0) * (partial_qty / trade["quantity"])
+            cash_delta = round(gross_pnl - exit_charge_portion, 2)
+            net_pnl = round(cash_delta - entry_charge_portion, 2)
             
             total_gross_pnl += gross_pnl
             total_net_pnl += net_pnl
+            total_cash_delta += cash_delta
             
             # Reduce trade
             new_qty = trade["quantity"] - partial_qty
             proportion = new_qty / trade["quantity"]
             new_investment = trade["investment"] * proportion
-            released = trade["investment"] - new_investment
+            released = (trade.get("margin_used") or trade["investment"]) * (partial_qty / trade["quantity"])
             total_released_margin += released
             
             update_manual_trade(
                 trade["id"],
                 quantity=new_qty,
                 investment=new_investment,
+                margin_used=(trade.get("margin_used") or 0) * proportion,
+                entry_charges=(trade.get("entry_charges") or 0) * proportion,
             )
             
             remaining_qty = 0
@@ -365,10 +392,15 @@ def close_position_by_symbol(
     losses_delta = 1 if total_net_pnl < 0 else 0
     
     update_manual_state(
-        capital=state["capital"] + total_net_pnl,
+        # Entry fees were deducted when the position opened, so only the
+        # price movement and exit fees change cash at close.
+        capital=state["capital"] + total_cash_delta,
         current_exposure=state["current_exposure"] - total_released_margin,
         open_positions=max(0, state["open_positions"] - positions_closed),
         total_realized_pnl=state["total_realized_pnl"] + total_net_pnl,
+        total_unrealized_pnl=state.get("total_unrealized_pnl", 0) - sum(
+            (trade.get("unrealized_pnl") or 0) for trade in open_trades if trade["id"] in closed_trades
+        ),
         pnl_today=state["pnl_today"] + total_net_pnl,
         wins_today=state["wins_today"] + wins_delta,
         losses_today=state["losses_today"] + losses_delta,
@@ -394,6 +426,54 @@ def close_position_by_symbol(
             f"Charges: ₹{exit_charges['total_charges']:.2f}, "
             f"Net P&L: ₹{total_net_pnl:.2f}"
         ),
+    }
+
+
+def close_manual_position(trade_id: int) -> Dict:
+    """Close one manual position at the current market price with exit fees."""
+    trade = get_manual_trade(trade_id)
+    if not trade:
+        return {"success": False, "errors": ["Trade not found"]}
+    if trade["status"] != "OPEN":
+        return {"success": False, "errors": [f"Trade is {trade['status']}"]}
+    _hydrate_legacy_position_metadata([trade])
+
+    price_result = get_price_provider().get_ltp(trade["symbol"])
+    if not price_result:
+        return {"success": False, "errors": ["Could not fetch current price"]}
+
+    exit_price = price_result["last_price"]
+    product_type = trade.get("product_type", "INTRADAY").upper()
+    exit_charges = ChargesCalculator.calculate_charges(
+        symbol=trade["symbol"], quantity=trade["quantity"], price=exit_price,
+        side="SELL", product_type=product_type,
+    )
+    gross_pnl = round((exit_price - trade["entry_price"]) * trade["quantity"], 2)
+    cash_delta = round(gross_pnl - exit_charges["total_charges"], 2)
+    net_pnl = round(cash_delta - (trade.get("entry_charges") or 0), 2)
+    close_manual_trade(trade_id, exit_price, "MANUAL_CLOSE")
+    update_manual_trade(trade_id, realized_pnl=net_pnl, pnl_pct=round(
+        (net_pnl / trade["investment"]) * 100, 2) if trade["investment"] else 0,
+    )
+
+    margin_released = trade.get("margin_used") or LeverageManager.calculate_margin_required(
+        symbol=trade["symbol"], quantity=trade["quantity"], price=trade["entry_price"],
+        product_type=product_type,
+    )["margin_required"]
+    state = get_manual_state()
+    update_manual_state(
+        capital=state["capital"] + cash_delta,
+        current_exposure=max(0, state["current_exposure"] - margin_released),
+        open_positions=max(0, state["open_positions"] - 1),
+        total_realized_pnl=state["total_realized_pnl"] + net_pnl,
+        total_unrealized_pnl=state.get("total_unrealized_pnl", 0) - (trade.get("unrealized_pnl") or 0),
+        pnl_today=state["pnl_today"] + net_pnl,
+        wins_today=state["wins_today"] + (1 if net_pnl > 0 else 0),
+        losses_today=state["losses_today"] + (1 if net_pnl < 0 else 0),
+    )
+    return {
+        "success": True, "trade_id": trade_id, "exit_price": exit_price,
+        "gross_pnl": gross_pnl, "pnl": net_pnl, "charges": exit_charges,
     }
 
 
@@ -474,11 +554,42 @@ def check_pending_orders() -> Dict:
 #   POSITION UPDATES (Live P&L)
 # ═══════════════════════════════════════════════════════════════
 
+def _hydrate_legacy_position_metadata(trades: List[Dict]) -> None:
+    """Fill fee and margin metadata for positions created before these fields."""
+    for trade in trades:
+        if trade.get("margin_used") and trade.get("entry_charges") is not None:
+            continue
+
+        order = get_manual_order(trade["entry_order_id"]) if trade.get("entry_order_id") else None
+        product_type = (order or {}).get("product_type", trade.get("product_type") or "INTRADAY").upper()
+        margin = LeverageManager.calculate_margin_required(
+            symbol=trade["symbol"], quantity=trade["quantity"], price=trade["entry_price"],
+            product_type=product_type,
+        )["margin_required"]
+        entry_charges = max(0, round((trade.get("investment") or 0) - margin, 2))
+        current_price = trade.get("current_price") or trade["entry_price"]
+        gross_unrealized = (current_price - trade["entry_price"]) * trade["quantity"]
+        if trade.get("direction") != "LONG":
+            gross_unrealized *= -1
+        updates = {
+            "product_type": product_type,
+            "margin_used": margin,
+            # Historical records stored investment as margin + charges.  Use
+            # that booked amount rather than recalculating fees under today's
+            # schedule, which would rewrite an already-settled balance.
+            "entry_charges": entry_charges,
+            "unrealized_pnl": round(gross_unrealized - entry_charges, 2),
+        }
+        update_manual_trade(trade["id"], **updates)
+        trade.update(updates)
+
+
 def update_position_prices():
     """Update current prices and unrealized P&L for open positions."""
     open_trades = get_manual_trades("OPEN")
     if not open_trades:
         return {"updated": 0}
+    _hydrate_legacy_position_metadata(open_trades)
     
     provider = get_price_provider()
     symbols = list(set(t["symbol"] for t in open_trades))
@@ -500,9 +611,12 @@ def update_position_prices():
         qty = trade["quantity"]
         
         if is_long:
-            unrealized = round((current_price - entry) * qty, 2)
+            gross_unrealized = (current_price - entry) * qty
         else:
-            unrealized = round((entry - current_price) * qty, 2)
+            gross_unrealized = (entry - current_price) * qty
+        # Entry fees are paid immediately; show net position P&L from the
+        # first tick so each row reconciles to the account total.
+        unrealized = round(gross_unrealized - (trade.get("entry_charges") or 0), 2)
         
         # Track highest/lowest
         highest = trade.get("highest_price") or entry
@@ -511,6 +625,8 @@ def update_position_prices():
         updates = {
             "current_price": current_price,
             "unrealized_pnl": unrealized,
+            "price_source": prices[symbol].get("source"),
+            "price_updated_at": prices[symbol].get("timestamp"),
         }
         
         if current_price > highest:
@@ -538,19 +654,29 @@ def get_manual_account_summary() -> Dict:
     state = get_manual_state()
     open_trades = get_manual_trades("OPEN")
     pending_orders = get_manual_orders("PENDING")
-    
+    _hydrate_legacy_position_metadata(open_trades)
+
     total_investment = sum(t["investment"] for t in open_trades)
     total_unrealized = sum((t.get("unrealized_pnl") or 0) for t in open_trades)
-    total_current = total_investment + total_unrealized
+    # Stored position P&L is net of entry charges for honest row-level P&L.
+    # Capital already includes those paid fees, so restore them only while
+    # calculating mark-to-market account equity.
+    gross_unrealized = total_unrealized + sum(
+        (t.get("entry_charges") or 0) for t in open_trades
+    )
+    account_value = state.get("capital", 0) + gross_unrealized
     
     return {
-        "capital":          state.get("capital", 0),
+        "capital":          account_value,
+        "cash_balance":     state.get("capital", 0),
         "starting_capital": state.get("starting_capital", 100000),
         "available":        state.get("capital", 0) - state.get("current_exposure", 0),
         "deployed":         state.get("current_exposure", 0),
         "total_realized_pnl": state.get("total_realized_pnl", 0),
         "total_unrealized_pnl": total_unrealized,
-        "total_pnl":        state.get("total_realized_pnl", 0) + total_unrealized,
+        # Capital already includes entry/exit charges.  Deriving total P&L
+        # from equity avoids reporting a different result from the account.
+        "total_pnl":        account_value - state.get("starting_capital", 0),
         "open_positions":   len(open_trades),
         "pending_orders":   len(pending_orders),
         "todays_stats": {

@@ -1306,6 +1306,11 @@ async def get_manual_trades_endpoint(
 ):
     """Get manual trades."""
     from database.db import get_manual_trades
+    from agent.manual_executor import update_position_prices
+    # The dashboard is a live view. Refresh here as well as in the scheduler
+    # so P&L remains current if the scheduler was restarted or is delayed.
+    if status in ("all", "OPEN"):
+        update_position_prices()
     if status == "all":
         return {"trades": get_manual_trades(limit=limit)}
     return {"trades": get_manual_trades(status=status, limit=limit)}
@@ -1328,41 +1333,12 @@ async def check_pending_endpoint():
 @router.post("/manual/close-position/{trade_id}")
 async def close_manual_position(trade_id: int):
     """Manually close a specific position at market price."""
-    from database.db import get_manual_trade, close_manual_trade, update_manual_state, get_manual_state
-    from data_pipeline.price_provider import get_price_provider
-    
-    trade = get_manual_trade(trade_id)
-    if not trade:
-        raise HTTPException(status_code=404, detail="Trade not found")
-    if trade["status"] != "OPEN":
-        raise HTTPException(status_code=400, detail=f"Trade is {trade['status']}")
-    
-    provider = get_price_provider()
-    price_result = provider.get_ltp(trade["symbol"])
-    if not price_result:
-        raise HTTPException(status_code=500, detail="Could not fetch price")
-    
-    exit_price = price_result["last_price"]
-    pnl = close_manual_trade(trade_id, exit_price, "MANUAL_CLOSE")
-    
-    # Update capital
-    state = get_manual_state()
-    update_manual_state(
-        capital=state["capital"] + pnl,
-        current_exposure=state["current_exposure"] - trade["investment"],
-        open_positions=max(0, state["open_positions"] - 1),
-        total_realized_pnl=state["total_realized_pnl"] + pnl,
-        pnl_today=state["pnl_today"] + pnl,
-        wins_today=state["wins_today"] + (1 if pnl > 0 else 0),
-        losses_today=state["losses_today"] + (1 if pnl < 0 else 0),
-    )
-    
-    return {
-        "success": True,
-        "trade_id": trade_id,
-        "exit_price": exit_price,
-        "pnl": pnl,
-    }
+    from agent.manual_executor import close_manual_position
+    result = close_manual_position(trade_id)
+    if not result["success"]:
+        message = result["errors"][0]
+        raise HTTPException(status_code=404 if message == "Trade not found" else 400, detail=message)
+    return result
 
 
 @router.post("/manual/reset-capital")

@@ -3,6 +3,7 @@
 import sys
 import logging
 import asyncio
+import os
 from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -91,9 +92,20 @@ app = FastAPI(
     lifespan = lifespan,
 )
 
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "TRADEDO_CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["*"],
+    # These endpoints can place and close paper trades. Do not permit an
+    # arbitrary website to issue browser requests to a running terminal.
+    allow_origins     = CORS_ORIGINS,
     allow_credentials = False,
     allow_methods     = ["*"],
     allow_headers     = ["*"],

@@ -4,6 +4,7 @@ import sqlite3
 import logging
 from pathlib import Path
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("tradedo.db")
 
@@ -12,10 +13,16 @@ DB_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "trade
 
 
 def get_connection():
-    """Get SQLite connection. Creates DB if not exists."""
+    """Get a SQLite connection configured for concurrent API/scheduler access."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    # The scheduler and request handlers can write at the same time. WAL plus
+    # a busy timeout prevents transient "database is locked" failures while
+    # retaining this lightweight local database.
+    conn = sqlite3.connect(str(DB_PATH), timeout=10)
     conn.row_factory = sqlite3.Row  # Returns dicts instead of tuples
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
@@ -265,6 +272,11 @@ def init_db():
             -- Position
             quantity            INTEGER NOT NULL,
             investment          REAL NOT NULL,
+            product_type        TEXT DEFAULT 'INTRADAY',
+            margin_used         REAL DEFAULT 0,
+            entry_charges       REAL DEFAULT 0,
+            price_source        TEXT,
+            price_updated_at    DATETIME,
             
             -- P&L
             unrealized_pnl      REAL DEFAULT 0,
@@ -292,6 +304,21 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_manual_orders_status ON manual_orders(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_manual_trades_status ON manual_trades(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_manual_trades_symbol ON manual_trades(symbol)")
+
+    # These columns were added after manual trading was introduced.  SQLite's
+    # CREATE TABLE IF NOT EXISTS does not upgrade existing installations.
+    existing_manual_trade_columns = {
+        row["name"] for row in cursor.execute("PRAGMA table_info(manual_trades)")
+    }
+    for column, definition in (
+        ("product_type", "TEXT DEFAULT 'INTRADAY'"),
+        ("margin_used", "REAL DEFAULT 0"),
+        ("entry_charges", "REAL DEFAULT 0"),
+        ("price_source", "TEXT"),
+        ("price_updated_at", "DATETIME"),
+    ):
+        if column not in existing_manual_trade_columns:
+            cursor.execute(f"ALTER TABLE manual_trades ADD COLUMN {column} {definition}")
     
     # Insert default watchlist
     default_stocks = [
@@ -794,6 +821,7 @@ def clear_todays_scans():
 
 def get_manual_state() -> dict:
     """Get manual account state."""
+    ensure_manual_daily_state()
     conn = get_connection()
     row = conn.execute("SELECT * FROM manual_state WHERE id=1").fetchone()
     conn.close()
@@ -817,14 +845,31 @@ def update_manual_state(**kwargs):
 
 def reset_manual_daily_state():
     """Reset daily counters."""
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
     conn = get_connection()
     conn.execute("""
         UPDATE manual_state 
         SET trades_today=0, wins_today=0, losses_today=0, pnl_today=0,
-            last_reset=date('now'), updated_at=CURRENT_TIMESTAMP
+            last_reset=?, updated_at=CURRENT_TIMESTAMP
         WHERE id=1
-    """)
+    """, (today,))
     conn.commit()
+    conn.close()
+
+
+def ensure_manual_daily_state():
+    """Reset manual daily counters once per India trading day, including after restarts."""
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+    conn = get_connection()
+    row = conn.execute("SELECT last_reset FROM manual_state WHERE id=1").fetchone()
+    if row and row["last_reset"] != today:
+        conn.execute("""
+            UPDATE manual_state
+            SET trades_today=0, wins_today=0, losses_today=0, pnl_today=0,
+                last_reset=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=1
+        """, (today,))
+        conn.commit()
     conn.close()
 
 
@@ -922,9 +967,9 @@ def create_manual_trade(trade_data: dict) -> int:
     cursor = conn.execute("""
         INSERT INTO manual_trades (
             symbol, direction, sector, entry_order_id,
-            entry_price, current_price, stop_loss, target,
-            quantity, investment, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        entry_price, current_price, stop_loss, target,
+            quantity, investment, product_type, margin_used, entry_charges, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         trade_data.get("symbol"),
         trade_data.get("direction"),
@@ -936,6 +981,9 @@ def create_manual_trade(trade_data: dict) -> int:
         trade_data.get("target"),
         trade_data.get("quantity"),
         trade_data.get("investment"),
+        trade_data.get("product_type", "INTRADAY"),
+        trade_data.get("margin_used", 0),
+        trade_data.get("entry_charges", 0),
         trade_data.get("notes", ""),
     ))
     trade_id = cursor.lastrowid

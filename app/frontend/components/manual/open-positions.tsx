@@ -190,6 +190,14 @@ function PositionRow({ trade, onBuy, onSell, onClose, isClosing }: any) {
 
       <td className="px-4 py-3 text-right font-mono tabular-nums text-sm font-bold">
         ₹{currentPrice?.toFixed(2)}
+        {trade.price_updated_at && (
+          <p className="text-[9px] font-normal text-muted-foreground mt-0.5">
+            {trade.price_source || "quote"} {new Date(trade.price_updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          </p>
+        )}
+        {!trade.price_updated_at && (
+          <p className="text-[9px] font-normal text-amber-500 mt-0.5">awaiting live quote</p>
+        )}
       </td>
 
       <td className="px-4 py-3 text-right font-mono tabular-nums text-sm">

@@ -36,8 +36,7 @@ Start the backend from `app/backend`:
 cd app/backend
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-# Install the backend dependencies required by the application.
-# This repository does not currently include a locked dependency manifest.
+pip install -r requirements.txt
 python main.py
 ```
 
@@ -63,6 +62,7 @@ The backend loads environment variables from a `.env` file in its working direct
 | `DATA_PATH` | Overrides the location used for data files. |
 | `MODELS_PATH` | Overrides the location used for model files. |
 | `LOGS_PATH` | Overrides the location used for logs. |
+| `TRADEDO_CORS_ORIGINS` | Comma-separated dashboard origins; defaults to local Next.js origins. |
 
 Additional integrations, including Upstox and Telegram, may require their own credentials. Configure them only for accounts you control.
 
@@ -92,4 +92,4 @@ Then start the backend and confirm `http://localhost:8000/health` returns a resp
 
 ## Documentation maintenance
 
-The backend does not currently ship a committed dependency manifest. Adding and maintaining one (for example, `requirements.txt` or a lockfile) is recommended before treating this project as reproducibly deployable.
+The backend dependency manifest is maintained at `app/backend/requirements.txt`. Use a lockfile for production deployments when the environment is finalized.

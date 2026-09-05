@@ -226,7 +226,13 @@ class UnifiedPriceProvider:
         return None
     
     def get_multiple_ltp(self, symbols: List[str]) -> Dict[str, Dict]:
-        """Get LTP for multiple stocks with fallback."""
+        """Get LTP for multiple stocks with fallback.
+
+        A batch market-data response can omit an otherwise valid instrument
+        (for example when the broker returns a differently encoded instrument
+        key).  Do not treat that as a missing price: retry each omitted symbol
+        through the same provider before falling through to the backup.
+        """
         results = {}
         
         for provider in self._get_provider_order():
@@ -247,6 +253,24 @@ class UnifiedPriceProvider:
                         "last_price": price,
                         "source":     source,
                         "timestamp":  datetime.now().isoformat(),
+                    }
+
+            # The individual endpoint is more reliable than a batch response
+            # for an instrument whose response key cannot be mapped back to a
+            # requested symbol.  This retry is intentionally only for symbols
+            # omitted by the batch call, so healthy batch requests stay fast.
+            for sym in [s for s in missing if s not in results]:
+                try:
+                    price = provider.get_ltp(sym)
+                except Exception as exc:
+                    logger.warning("Individual LTP retry failed for %s via %s: %s", sym, source, exc)
+                    continue
+                if price and price > 0:
+                    results[sym] = {
+                        "symbol": sym,
+                        "last_price": price,
+                        "source": source,
+                        "timestamp": datetime.now().isoformat(),
                     }
         
         return results

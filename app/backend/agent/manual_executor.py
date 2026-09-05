@@ -596,11 +596,16 @@ def update_position_prices():
     prices = provider.get_multiple_ltp(symbols)
     
     updated_count = 0
-    total_unrealized = 0
+    unavailable_symbols = []
+    # Start with the stored P&L.  A transient quote outage must never turn a
+    # real account's total P&L into zero; the last successful mark remains the
+    # valuation until a fresh quote arrives.
+    total_unrealized = sum((trade.get("unrealized_pnl") or 0) for trade in open_trades)
     
     for trade in open_trades:
         symbol = trade["symbol"]
         if symbol not in prices:
+            unavailable_symbols.append(symbol)
             continue
         
         current_price = prices[symbol]["last_price"]
@@ -636,13 +641,17 @@ def update_position_prices():
         
         update_manual_trade(trade["id"], **updates)
         
-        total_unrealized += unrealized
+        total_unrealized += unrealized - (trade.get("unrealized_pnl") or 0)
         updated_count += 1
     
     # Update total unrealized in state
     update_manual_state(total_unrealized_pnl=total_unrealized)
     
-    return {"updated": updated_count, "total_unrealized_pnl": total_unrealized}
+    return {
+        "updated": updated_count,
+        "total_unrealized_pnl": total_unrealized,
+        "unavailable_symbols": sorted(set(unavailable_symbols)),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -651,6 +660,9 @@ def update_position_prices():
 
 def get_manual_account_summary() -> Dict:
     """Get complete manual account summary."""
+    # Keep all entry points (the summary cards, table poll, and explicit
+    # refresh button) on one mark-to-market calculation.
+    update_position_prices()
     state = get_manual_state()
     open_trades = get_manual_trades("OPEN")
     pending_orders = get_manual_orders("PENDING")

@@ -9,7 +9,11 @@ upstox-python-sdk>=2.12,<3.0
 yfinance>=0.2,<1.0
 pandas>=2.2,<3.0
 numpy>=1.26,<3.0
-scikit-learn>=1.5,<2.0
+ta>=0.11,<1.0
+# Saved models were trained with this version; newer releases warn and can
+# deserialize estimators differently.
+scikit-learn==1.6.1
+lightgbm>=4.0,<5.0
 joblib>=1.4,<2.0
 requests>=2.32,<3.0
 feedparser>=6.0,<7.0

@@ -100,3 +100,22 @@ export function useResetManualCapital() {
     onError: () => toast.error("Reset failed"),
   });
 }
+
+// Force a mark-to-market pass, then refresh every manual-trading card from
+// the same updated backend state.  Invalidating alone can leave the summary
+// request ahead of the position request and briefly show mismatched P&L.
+export function useRefreshManualPositions() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.post("/manual/positions/update").then(r => r.data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["manual-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["manual-trades"] });
+      if (data.unavailable_symbols?.length) {
+        toast.warning(`Live quote unavailable for ${data.unavailable_symbols.join(", ")}. Showing the last known price.`);
+      }
+    },
+    onError: () => toast.error("Could not refresh live market prices"),
+  });
+}

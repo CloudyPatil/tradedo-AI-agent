@@ -657,7 +657,7 @@ async def close_trade_endpoint(
 
 @router.get("/agent/trades")
 async def get_trades(
-    status: str = Query(default="all", regex="^(all|open|closed)$"),
+    status: str = Query(default="all", pattern="^(all|open|closed)$"),
     limit: int = Query(default=20, le=100)
 ):
     """Get paper trades."""
@@ -1147,10 +1147,24 @@ async def get_upstox_quote(symbol: str):
     return client.get_market_quote(symbol) or {"error": "No data"}
 
 
+@router.get("/market/price/{symbol}")
+async def get_executable_market_price(symbol: str):
+    """Return the exact live quote source used by manual order execution."""
+    from data_pipeline.price_provider import get_price_provider
+
+    quote = get_price_provider().get_ltp(symbol)
+    if not quote:
+        raise HTTPException(
+            status_code=503,
+            detail="No executable market quote is available for this symbol.",
+        )
+    return quote
+
+
 @router.get("/upstox/history/{symbol}")
 async def get_upstox_history(
     symbol: str,
-    interval: str = Query(default="day", regex="^(day|week|month|minute)$"),
+    interval: str = Query(default="day", pattern="^(day|week|month|minute)$"),
     days: int = Query(default=30, le=365),
 ):
     """Get historical candles from Upstox."""
@@ -1168,7 +1182,7 @@ async def get_upstox_history(
 @router.get("/upstox/intraday/{symbol}")
 async def get_upstox_intraday(
     symbol: str,
-    interval: str = Query(default="5minute", regex="^(1minute|5minute|15minute|30minute)$"),
+    interval: str = Query(default="5minute", pattern="^(1minute|5minute|15minute|30minute)$"),
 ):
     """Get intraday candles from Upstox."""
     from data_pipeline.upstox_api import get_upstox_client
@@ -1193,8 +1207,8 @@ async def upstox_full_status():
 
 @router.post("/screener/scan")
 async def trigger_screener_scan(
-    tier: str = Query(default="tier2", regex="^(tier1|tier2|tier3|full)$"),
-    mode: str = Query(default="swing", regex="^(swing|intraday)$"),
+    tier: str = Query(default="tier2", pattern="^(tier1|tier2|tier3|full)$"),
+    mode: str = Query(default="swing", pattern="^(swing|intraday)$"),
 ):
     """
     Trigger a batch scan of stocks.
@@ -1289,7 +1303,7 @@ async def cancel_manual_order_endpoint(order_id: int, reason: str = "Manual canc
 
 @router.get("/manual/orders")
 async def get_manual_orders_endpoint(
-    status: str = Query(default="all", regex="^(all|PENDING|FILLED|CANCELLED|REJECTED)$"),
+    status: str = Query(default="all", pattern="^(all|PENDING|FILLED|CANCELLED|REJECTED)$"),
     limit: int = Query(default=100, le=500)
 ):
     """Get manual orders."""
@@ -1301,7 +1315,7 @@ async def get_manual_orders_endpoint(
 
 @router.get("/manual/trades")
 async def get_manual_trades_endpoint(
-    status: str = Query(default="all", regex="^(all|OPEN|CLOSED)$"),
+    status: str = Query(default="all", pattern="^(all|OPEN|CLOSED)$"),
     limit: int = Query(default=100, le=500)
 ):
     """Get manual trades."""

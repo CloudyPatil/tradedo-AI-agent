@@ -4,6 +4,7 @@ import sys
 import logging
 import asyncio
 import os
+import socket
 from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -28,6 +29,26 @@ logging.basicConfig(
     datefmt="%H:%M:%S"
 )
 logger = logging.getLogger("tradedo.main")
+
+
+def ensure_port_is_available(host: str, port: int) -> None:
+    """Fail before application startup when another backend owns the port.
+
+    Uvicorn runs FastAPI's lifespan before it binds the listening socket.  A
+    simple port preflight therefore prevents a duplicate process from starting
+    schedulers and Telegram polling only to fail at the very end of startup.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((host, port))
+        except OSError as exc:
+            logger.error(
+                "Cannot start TRADEDO: %s:%s is already in use. "
+                "Stop the existing backend or use a different port.",
+                host,
+                port,
+            )
+            raise SystemExit(1) from exc
 
 # Store bot app globally for shutdown
 bot_app = None
@@ -204,4 +225,6 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False, workers=1)
+    host, port = "0.0.0.0", 8000
+    ensure_port_is_available(host, port)
+    uvicorn.run("main:app", host=host, port=port, reload=False, workers=1)

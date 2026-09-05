@@ -70,7 +70,9 @@ NSE_INSTRUMENT_KEYS = {
     "CIPLA.NS":       "NSE_EQ|INE059A01026",
     "SBILIFE.NS":     "NSE_EQ|INE123W01016",
     "ONGC.NS":        "NSE_EQ|INE213A01029",
-    "DRREDDY.NS":     "NSE_EQ|INE089A01023",
+    # Dr. Reddy's completed a 1:5 split in October 2024. The prior ISIN no
+    # longer produces an executable quote from Upstox.
+    "DRREDDY.NS":     "NSE_EQ|INE089A01031",
     "EICHERMOT.NS":   "NSE_EQ|INE066A01021",
     "APOLLOHOSP.NS":  "NSE_EQ|INE437A01024",
     "INDUSINDBK.NS":  "NSE_EQ|INE095A01012",

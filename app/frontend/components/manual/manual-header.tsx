@@ -5,8 +5,7 @@
 import { useState } from "react";
 import { User, RefreshCw, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useQueryClient } from "@tanstack/react-query";
-import { useManualSummary, useResetManualCapital } from "@/lib/hooks/use-manual";
+import { useManualSummary, useRefreshManualPositions, useResetManualCapital } from "@/lib/hooks/use-manual";
 import { formatCurrency, cn } from "@/lib/utils";
 import { TradeModal } from "./trade-modal";
 import { 
@@ -17,13 +16,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export function ManualHeader() {
   const { data, isLoading, isFetching } = useManualSummary();
-  const queryClient = useQueryClient();
   const [tradeModalOpen, setTradeModalOpen] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [newCapital, setNewCapital] = useState("100000");
   const [tradeSymbol, setTradeSymbol] = useState("RELIANCE.NS");
   
   const resetMutation = useResetManualCapital();
+  const refreshPositions = useRefreshManualPositions();
 
   const handleReset = () => {
     resetMutation.mutate(parseFloat(newCapital) || 100000);
@@ -91,10 +90,10 @@ export function ManualHeader() {
             <Button 
               variant="outline"
               size="sm"
-              onClick={() => queryClient.invalidateQueries()}
-              disabled={isFetching}
+              onClick={() => refreshPositions.mutate()}
+              disabled={isFetching || refreshPositions.isPending}
             >
-              <RefreshCw size={14} className={cn("mr-2", isFetching && "animate-spin")} />
+              <RefreshCw size={14} className={cn("mr-2", (isFetching || refreshPositions.isPending) && "animate-spin")} />
               REFRESH
             </Button>
 

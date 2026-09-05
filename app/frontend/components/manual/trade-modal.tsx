@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { usePlaceOrder, useManualSummary } from "@/lib/hooks/use-manual";
+import { useManualTrades, usePlaceOrder, useManualSummary } from "@/lib/hooks/use-manual";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -42,20 +42,27 @@ export function TradeModal({ open, onOpenChange, symbol, defaultSide = "BUY" }: 
 
   const placeOrder = usePlaceOrder();
   const { data: summary } = useManualSummary();
+  const { data: openTradesData } = useManualTrades("OPEN");
   
-  // Get current price
-  const { data: priceData } = useQuery({
-    queryKey: ["price", symbol],
-    queryFn: () => api.get(`/predict/${symbol}`, { params: { mode: "swing" } }).then(r => r.data),
+  // The trade ticket must show the same quote source the executor uses.
+  const { data: liveQuote, isLoading: isPriceLoading, isError: isPriceError } = useQuery({
+    queryKey: ["executable-market-price", symbol],
+    queryFn: () => api.get(`/market/price/${symbol}`).then(r => r.data),
     enabled: open && !!symbol,
-    staleTime: 30000,
+    staleTime: 5_000,
+    refetchInterval: open ? 5_000 : false,
+    retry: 1,
   });
   
-  const currentPrice = priceData?.current_price || 0;
+  const currentPrice = liveQuote?.last_price || 0;
   const cleanSymbol = symbol.replace(".NS", "");
 
   // ── 2. DERIVED VALUES (Must be BEFORE useEffect!) ─────────
   const qty = parseInt(quantity) || 0;
+  const availableToSell = (openTradesData?.trades || [])
+    .filter((trade: any) => trade.symbol.replace(".NS", "") === cleanSymbol)
+    .reduce((total: number, trade: any) => total + trade.quantity, 0);
+  const hasSellableQuantity = side === "BUY" || (availableToSell > 0 && qty <= availableToSell);
   
   const executionPrice = orderType === "MARKET" 
     ? currentPrice 
@@ -78,15 +85,22 @@ export function TradeModal({ open, onOpenChange, symbol, defaultSide = "BUY" }: 
     setSide(defaultSide);
   }, [defaultSide, open]);
 
-  // Reset form when modal opens
+  // Reset fields only for a new ticket, never on every price refresh.
   useEffect(() => {
     if (open) {
       setQuantity("1");
-      setPrice(currentPrice.toString());
-      setTriggerPrice(currentPrice.toString());
+      setPrice("");
+      setTriggerPrice("");
       setStopLoss("");
       setTarget("");
       setNotes("");
+    }
+  }, [open, symbol]);
+
+  useEffect(() => {
+    if (open && currentPrice > 0) {
+      setPrice((value) => value || currentPrice.toString());
+      setTriggerPrice((value) => value || currentPrice.toString());
     }
   }, [open, currentPrice]);
 
@@ -165,8 +179,8 @@ export function TradeModal({ open, onOpenChange, symbol, defaultSide = "BUY" }: 
   // ── 5. JSX ────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b border-border px-6 py-5 pr-12">
           <DialogTitle className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-xl font-mono font-bold">{cleanSymbol}</span>
@@ -175,15 +189,15 @@ export function TradeModal({ open, onOpenChange, symbol, defaultSide = "BUY" }: 
               </span>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <div className="w-1.5 h-1.5 rounded-full bg-bull animate-pulse" />
-              LIVE
+              <div className={cn("w-1.5 h-1.5 rounded-full", currentPrice > 0 ? "bg-bull animate-pulse" : "bg-bear")} />
+              {isPriceLoading ? "LOADING" : currentPrice > 0 ? (liveQuote?.source || "LIVE").toUpperCase() : "UNAVAILABLE"}
             </div>
           </DialogTitle>
         </DialogHeader>
 
         {/* Buy/Sell Tabs */}
-        <Tabs value={side} onValueChange={(v) => setSide(v as any)}>
-          <TabsList className="grid w-full grid-cols-2 h-12">
+        <Tabs value={side} onValueChange={(v) => setSide(v as "BUY" | "SELL")} className="px-6 pb-6">
+          <TabsList className="grid w-full grid-cols-2 h-12 mt-4">
             <TabsTrigger 
               value="BUY"
               className="data-[state=active]:bg-bull data-[state=active]:text-white font-bold"
@@ -201,6 +215,21 @@ export function TradeModal({ open, onOpenChange, symbol, defaultSide = "BUY" }: 
           </TabsList>
 
           <TabsContent value={side} className="space-y-4 mt-4">
+            {isPriceError && (
+              <div className="rounded-md border border-bear/40 bg-bear/10 p-3 text-xs text-bear">
+                No executable live quote is available. The order is disabled until a price is returned.
+              </div>
+            )}
+
+            {side === "SELL" && (
+              <div className={cn(
+                "rounded-md border p-3 text-xs",
+                hasSellableQuantity ? "border-bull/30 bg-bull/5" : "border-bear/40 bg-bear/10 text-bear"
+              )}>
+                <span className="font-bold">Available to sell: {availableToSell} shares</span>
+                {!hasSellableQuantity && <p className="mt-1">Paper trading supports selling existing long positions only; short selling is not enabled.</p>}
+              </div>
+            )}
             
             {/* Product Type - Enhanced */}
             <div>
@@ -485,6 +514,8 @@ export function TradeModal({ open, onOpenChange, symbol, defaultSide = "BUY" }: 
               disabled={
                 placeOrder.isPending || 
                 !canAfford || 
+                !hasSellableQuantity ||
+                currentPrice <= 0 ||
                 qty <= 0 ||
                 ((orderType === "LIMIT" || orderType === "SL") && !price) ||
                 ((orderType === "SL" || orderType === "SL_MARKET") && !triggerPrice)
